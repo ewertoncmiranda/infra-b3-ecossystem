@@ -1,0 +1,42 @@
+# -------------------------
+# Terraform
+# -------------------------
+# Ignore Terraform working directories and state files (including nested folders)
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.backup
+**/.terraform.lock.hcl
+crash.log
+
+# Common overrides and local TF files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# -------------------------
+# IDEs
+# -------------------------
+# JetBrains IDEs (IntelliJ, PyCharm, Rider, etc.)
+.idea/
+*.iml
+*.iws
+
+# VS Code
+.vscode/
+
+# -------------------------
+# Logs and OS
+# -------------------------
+# Application logs (local development)
+logs/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+

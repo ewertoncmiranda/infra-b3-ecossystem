@@ -1,0 +1,119 @@
+services:
+
+  localstack:
+    image: localstack/localstack:3.3
+    container_name: localstack
+    environment:
+      - SERVICES=sqs,s3
+      - EDGE_PORT=4566
+      - AWS_DEFAULT_REGION=sa-east-1
+      - DEBUG=1
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack_data:/var/lib/localstack
+
+    healthcheck:
+      test: [ "CMD", "awslocal", "sqs", "list-queues" ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  terraform-provisioner:
+    image: hashicorp/terraform:latest
+    container_name: terraform-provisioner
+    volumes:
+      - ./infra:/infra
+    working_dir: /infra
+    environment:
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=sa-east-1
+      - TF_VAR_aws_endpoint=http://localstack:4566
+    entrypoint: /bin/sh -c "terraform init && terraform apply -auto-approve"
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: minha_base
+      MYSQL_USER: spring
+      MYSQL_PASSWORD: spring123
+    ports:
+      - "3305:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d
+
+  gestor-ativos-brutos:
+    image: ewertonmiranda/gestor-ativos-brutos:latest
+
+    container_name: gestor-ativos-brutos
+
+    restart: always
+
+    depends_on:
+      mysql:
+        condition: service_started
+      localstack:
+        condition: service_healthy
+      terraform-provisioner:
+        condition: service_completed_successfully
+
+    ports:
+      - "8091:8091"
+
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      SERVER_PORT: 8091
+
+      AWS_REGION: sa-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_SQS_ENDPOINT_BASE: http://localstack:4566
+      AWS_SQS_QUEUE_URL: http://localstack:4566/000000000000/tratar-ativos
+      BRAPI_API_KEY: ${BRAPI_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    volumes:
+      - ./logs/java:/var/log/myapp
+
+  gerar-insights:
+    image: ewertonmiranda/gerar-insights:latest
+    container_name: gerar-insights
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      terraform-provisioner:
+        condition: service_completed_successfully
+    environment:
+      ENVIRONMENT: docker
+      DB_USER: spring
+      DB_PASS: spring123
+      DB_NAME: minha_base
+      LOCALSTACK_ENDPOINT: http://localstack:4566
+      AWS_REGION: sa-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      QUEUE_NAME: tratar-ativos
+      LOG_LEVEL: INFO
+      RETRY_ATTEMPTS: 3
+      RETRY_DELAY: 10
+
+volumes:
+  mysql_data:
+  localstack_data:
+
