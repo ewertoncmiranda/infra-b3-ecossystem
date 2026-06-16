@@ -20,17 +20,14 @@ services:
       retries: 30
 
   terraform-provisioner:
-    image: hashicorp/terraform:latest
+    image: ewertonmiranda/infra-b3-ecossystem:latest
     container_name: terraform-provisioner
-    volumes:
-      - ./infra:/infra
-    working_dir: /infra
     environment:
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=sa-east-1
       - TF_VAR_aws_endpoint=http://localstack:4566
-    entrypoint: /bin/sh -c "terraform init && terraform apply -auto-approve"
+      - TF_LOG=INFO
     depends_on:
       localstack:
         condition: service_healthy
