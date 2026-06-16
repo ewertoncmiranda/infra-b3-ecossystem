@@ -1,4 +1,4 @@
-name: Deploy to Docker Hub (Develop)
+name: Implantar no Docker Hub (Develop)
 
 on:
   push:
@@ -13,24 +13,24 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout code
+      - name: Fazer checkout do código
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
+      - name: Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
+      - name: Efetuar login no Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Extract metadata
+      - name: Extrair metadados
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ secrets.DOCKER_USERNAME }}/gestor-ativos-brutos
+            ${{ secrets.DOCKER_USERNAME }}/infra-b3-ecossystem
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -39,13 +39,19 @@ jobs:
             type=raw,value=develop
             type=raw,value=latest
 
-      - name: Build and push to Docker Hub
+      - name: Validar configuração Terraform
+        run: |
+          docker run --rm -v ${{ github.workspace }}/infra:/infra -w /infra \
+            hashicorp/terraform:latest \
+            terraform validate
+
+      - name: Construir e enviar para Docker Hub
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./infra
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/infra-b3-ecossytem:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/infra-b3-ecossytem:buildcache,mode=max
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/infra-b3-ecossystem:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/infra-b3-ecossystem:buildcache,mode=max
 
