@@ -41,9 +41,11 @@ jobs:
 
       - name: Validar configuração Terraform
         run: |
-          docker run --rm -v ${{ github.workspace }}/infra:/infra -w /infra \
+          docker run --rm --entrypoint terraform \
+            -v ${{ github.workspace }}/infra:/infra \
+            -w /infra \
             hashicorp/terraform:latest \
-            terraform validate
+            validate
 
       - name: Construir e enviar para Docker Hub
         uses: docker/build-push-action@v5
