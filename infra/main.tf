@@ -1,101 +1,45 @@
-terraform {
-  required_version = ">= 1.3.0"
+module "sqs" {
+  count   = var.create_sqs ? 1 : 0
+  source  = "./sqs"
 
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
+  sqs_queues = {
+    tratar_ativos = {
+      name                      = "tratar-ativos"
+      delay_seconds             = local.sqs_config.delay_seconds
+      max_message_size          = local.sqs_config.max_message_size
+      message_retention_seconds = local.sqs_config.message_retention_seconds
+      receive_wait_time_seconds = local.sqs_config.receive_wait_time_seconds
+    }
+    iniciar_treinamento = {
+      name                      = "sqs-iniciar-treinamento"
+      delay_seconds             = local.sqs_config.delay_seconds
+      max_message_size          = local.sqs_config.max_message_size
+      message_retention_seconds = local.sqs_config.message_retention_seconds
+      receive_wait_time_seconds = local.sqs_config.receive_wait_time_seconds
     }
   }
+
+  common_tags = local.common_tags
+  environment = var.environment
+
+  depends_on = []
 }
 
-variable "aws_region" {
-  type    = string
-  default = "sa-east-1"
-}
+module "s3" {
+  count   = var.create_s3 ? 1 : 0
+  source  = "./s3"
 
-variable "aws_endpoint" {
-  type    = string
-  default = "http://localhost:4566"
-}
-
-provider "aws" {
-  region     = var.aws_region
-  access_key = "test"
-  secret_key = "test"
-
-  s3_use_path_style            = true
-  skip_credentials_validation = true
-  skip_metadata_api_check     = true
-  skip_requesting_account_id  = true
-
-  endpoints {
-    s3  = var.aws_endpoint
-    sqs = var.aws_endpoint
+  s3_buckets = {
+    salvar_insights = {
+      name           = "bucket-salvar-insights"
+      force_destroy  = local.s3_config.force_destroy
+      versioning     = local.s3_config.versioning
+      block_public   = local.s3_config.block_public
+    }
   }
-}
 
-resource "aws_sqs_queue" "tratar_ativos" {
-  name                      = "tratar-ativos"
-  delay_seconds             = 0
-  max_message_size          = 262144
-  message_retention_seconds = 86400
-  receive_wait_time_seconds = 10
+  common_tags = local.common_tags
+  environment = var.environment
 
-  tags = {
-    Environment = "local"
-    Project     = "devops-b3-monitoring"
-  }
-}
-
-resource "aws_sqs_queue" "iniciar_treinamento" {
-  name                      = "sqs-iniciar-treinamento"
-  delay_seconds             = 0
-  max_message_size          = 262144
-  message_retention_seconds = 86400
-  receive_wait_time_seconds = 10
-
-  tags = {
-    Environment = "local"
-    Project     = "devops-b3-monitoring"
-  }
-}
-
-resource "aws_s3_bucket" "salvar_insights" {
-  bucket        = "bucket-salvar-insights"
-  force_destroy = true
-
-  tags = {
-    Environment = "local"
-    Project     = "devops-b3-monitoring"
-  }
-}
-
-resource "aws_s3_bucket_versioning" "salvar_insights" {
-  bucket = aws_s3_bucket.salvar_insights.id
-
-  versioning_configuration {
-    status = "Disabled"
-  }
-}
-
-resource "aws_s3_bucket_public_access_block" "salvar_insights" {
-  bucket = aws_s3_bucket.salvar_insights.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-output "bucket_name" {
-  value = aws_s3_bucket.salvar_insights.bucket
-}
-
-output "tratar_ativos_queue_url" {
-  value = aws_sqs_queue.tratar_ativos.url
-}
-
-output "iniciar_treinamento_queue_url" {
-  value = aws_sqs_queue.iniciar_treinamento.url
+  depends_on = []
 }

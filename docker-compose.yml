@@ -84,6 +84,9 @@ services:
       AWS_SQS_QUEUE_URL: http://localstack:4566/000000000000/tratar-ativos
       BRAPI_API_KEY: ${BRAPI_API_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+
+
+
     volumes:
       - ./logs/java:/var/log/myapp
 
