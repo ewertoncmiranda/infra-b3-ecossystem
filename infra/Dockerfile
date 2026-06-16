@@ -25,10 +25,10 @@ COPY --chown=terraform:terraform entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh && \
     chmod -R 755 /infra
 
+USER terraform
+
 # Inicializa Terraform para baixar e armazenar em cache os provedores
 RUN terraform init -backend=false || true
-
-USER terraform
 
 ENTRYPOINT ["/entrypoint.sh"]
 
