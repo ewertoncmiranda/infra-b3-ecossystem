@@ -39,6 +39,14 @@ jobs:
             type=raw,value=develop
             type=raw,value=latest
 
+      - name: Inicializar Terraform
+        run: |
+          docker run --rm --entrypoint terraform \
+            -v ${{ github.workspace }}/infra:/infra \
+            -w /infra \
+            hashicorp/terraform:latest \
+            init -backend=false
+
       - name: Validar configuração Terraform
         run: |
           docker run --rm --entrypoint terraform \
