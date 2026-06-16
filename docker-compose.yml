@@ -4,33 +4,38 @@ services:
     image: localstack/localstack:3.3
     container_name: localstack
     environment:
-      - SERVICES=sqs,s3
-      - EDGE_PORT=4566
-      - AWS_DEFAULT_REGION=sa-east-1
-      - DEBUG=1
+      SERVICES: sqs,s3
+      EDGE_PORT: 4566
+      AWS_DEFAULT_REGION: sa-east-1
+      DEBUG: 1
     ports:
       - "4566:4566"
     volumes:
       - localstack_data:/var/lib/localstack
-
+    networks:
+      - observability
     healthcheck:
-      test: [ "CMD", "awslocal", "sqs", "list-queues" ]
+      test: ["CMD", "awslocal", "sqs", "list-queues"]
       interval: 5s
       timeout: 3s
       retries: 30
 
-  my-personal-terraform-provisioner:
+  my-terraform-provisioner:
     image: ewertonmiranda/infra-b3-ecossystem:latest
-    container_name: my-personal-terraform-provisioner
+    container_name: my-terraform-provisioner
+    working_dir: /infra
     environment:
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - AWS_DEFAULT_REGION=sa-east-1
-      - TF_VAR_aws_endpoint=http://localstack:4566
-      - TF_LOG=INFO
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: sa-east-1
+      TF_VAR_aws_endpoint: http://localstack:4566
+    entrypoint: >
+      /bin/sh -c "terraform init && terraform apply -auto-approve"
     depends_on:
       localstack:
         condition: service_healthy
+    networks:
+      - observability
 
   mysql:
     image: mysql:8.0
@@ -43,33 +48,30 @@ services:
     ports:
       - "3305:3306"
     command: --default-authentication-plugin=mysql_native_password
-    healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
-      interval: 5s
-      timeout: 3s
-      retries: 15
     volumes:
       - mysql_data:/var/lib/mysql
       - ./mysql-init:/docker-entrypoint-initdb.d
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   gestor-ativos-brutos:
     image: ewertonmiranda/gestor-ativos-brutos:latest
-
     container_name: gestor-ativos-brutos
-
     restart: always
-
     depends_on:
       mysql:
-        condition: service_started
+        condition: service_healthy
       localstack:
         condition: service_healthy
-      my-personal-terraform-provisioner:
+      my-terraform-provisioner:
         condition: service_completed_successfully
-
     ports:
       - "8091:8091"
-
     environment:
       SPRING_PROFILES_ACTIVE: dev
       SERVER_PORT: 8091
@@ -82,14 +84,22 @@ services:
       BRAPI_API_KEY: ${BRAPI_API_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
 
-
-
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_FILE_NAME: /app/logs/application.log
     volumes:
-      - ./logs/java:/var/log/myapp
+      - ./logs:/app/logs
+    networks:
+      - observability
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   gerar-insights:
     image: ewertonmiranda/gerar-insights:latest
     container_name: gerar-insights
+    restart: always
     ports:
       - "8080:8080"
     depends_on:
@@ -97,23 +107,120 @@ services:
         condition: service_healthy
       localstack:
         condition: service_healthy
-      my-personal-terraform-provisioner:
+      my-terraform-provisioner:
         condition: service_completed_successfully
     environment:
       ENVIRONMENT: docker
+
+      DB_HOST: mysql
+      DB_PORT: 3306
       DB_USER: spring
       DB_PASS: spring123
       DB_NAME: minha_base
+
       LOCALSTACK_ENDPOINT: http://localstack:4566
       AWS_REGION: sa-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
+
       QUEUE_NAME: tratar-ativos
+      QUEUE_URL: http://localstack:4566/000000000000/tratar-ativos
+
       LOG_LEVEL: INFO
       RETRY_ATTEMPTS: 3
       RETRY_DELAY: 10
+    networks:
+      - observability
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
+    container_name: elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.14.0
+    container_name: logstash
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    ports:
+      - "5000:5000/tcp"
+      - "5000:5000/udp"
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - observability
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.14.0
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - observability
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    networks:
+      - observability
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - observability
 
 volumes:
   mysql_data:
   localstack_data:
+  elasticsearch_data:
+  prometheus_data:
+  grafana_data:
 
+networks:
+  observability:
+    driver: bridge
