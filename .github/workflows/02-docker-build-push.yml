@@ -49,11 +49,3 @@ jobs:
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/infra-b3-ecossytem:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/infra-b3-ecossytem:buildcache,mode=max
 
-      - name: Docker Hub Description
-        uses: peter-evans/dockerhub-description@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-          repository: ${{ secrets.DOCKER_USERNAME }}/gestor-ativos-brutos
-          short-description: "infra-b3-ecossytem"
-          readme-filepath: ./README.md
