@@ -1,0 +1,46 @@
+# Arquivos Git
+.git
+.gitignore
+.gitattributes
+
+# Arquivos de estado Terraform e bloqueio
+terraform.tfstate
+terraform.tfstate.*
+.terraform.lock.hcl
+.terraform/
+
+# Arquivos de substituição local
+terraform.local.tfvars
+*.tfvars.json
+
+# Registros
+*.log
+logs/
+
+# Arquivos de IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
+
+# Documentação
+README.md
+ARCHITECTURE_PATTERNS.md
+PUSH_INSTRUCTIONS.md
+
+# Arquivos Docker
+.dockerignore
+Dockerfile
+
+# CI/CD
+.github/
+
+# Excluir diretórios grandes
+.terraform/
+node_modules/
+
