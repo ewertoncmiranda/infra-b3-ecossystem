@@ -40,3 +40,30 @@ CREATE TABLE IF NOT EXISTS insight_acao (
     INDEX idx_simbolo_insight (simbolo),
     INDEX idx_data_analise (data_analise)
 );
+
+-- Tabela de candles diarios de series historicas
+CREATE TABLE IF NOT EXISTS serie_historica (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+
+    simbolo VARCHAR(10) NOT NULL,
+    data_pregao DATE NOT NULL,
+    intervalo VARCHAR(10) NOT NULL DEFAULT '1d',
+    range_usado VARCHAR(10),
+
+    abertura DECIMAL(12,4),
+    maxima DECIMAL(12,4),
+    minima DECIMAL(12,4),
+    fechamento DECIMAL(12,4),
+    fechamento_ajustado DECIMAL(12,4),
+    volume BIGINT,
+
+    fonte VARCHAR(30) NOT NULL DEFAULT 'BRAPI',
+    detalhes_json JSON,
+    criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uq_serie_historica_dia (simbolo, data_pregao, intervalo),
+    INDEX idx_serie_historica_simbolo (simbolo),
+    INDEX idx_serie_historica_data (data_pregao),
+    INDEX idx_serie_historica_simbolo_data (simbolo, data_pregao)
+);
