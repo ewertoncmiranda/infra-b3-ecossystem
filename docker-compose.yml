@@ -125,6 +125,8 @@ services:
 
       QUEUE_NAME: tratar-ativos
       QUEUE_URL: http://localstack:4566/000000000000/tratar-ativos
+      HISTORICAL_SERIES_QUEUE_NAME: sqs-registrar-series-historicas
+      HISTORICAL_SERIES_QUEUE_URL: http://localstack:4566/000000000000/sqs-registrar-series-historicas
 
       LOG_LEVEL: INFO
       RETRY_ATTEMPTS: 3
@@ -160,7 +162,9 @@ services:
     image: docker.elastic.co/logstash/logstash:8.14.0
     container_name: logstash
     volumes:
-      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+        - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+        - ./logs:/logs:ro
+        - logstash_data:/usr/share/logstash/data
     ports:
       - "5000:5000/tcp"
       - "5000:5000/udp"
@@ -220,6 +224,7 @@ volumes:
   elasticsearch_data:
   prometheus_data:
   grafana_data:
+  logstash_data:
 
 networks:
   observability:
