@@ -67,3 +67,25 @@ CREATE TABLE IF NOT EXISTS serie_historica (
     INDEX idx_serie_historica_data (data_pregao),
     INDEX idx_serie_historica_simbolo_data (simbolo, data_pregao)
 );
+
+-- Ativos configurados para monitoramento recorrente
+CREATE TABLE IF NOT EXISTS ativo_monitorado (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+    simbolo VARCHAR(10) NOT NULL,
+    ativo BOOLEAN NOT NULL DEFAULT TRUE,
+    tipo_coleta VARCHAR(30) NOT NULL DEFAULT 'COTACAO',
+    intervalo_segundos INT UNSIGNED NOT NULL DEFAULT 300,
+
+    versao BIGINT NOT NULL DEFAULT 0,
+    criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uq_ativo_monitorado_simbolo (simbolo),
+    INDEX idx_ativo_monitorado_status_atualizacao (ativo, atualizado_em),
+
+    CONSTRAINT chk_ativo_monitorado_intervalo
+        CHECK (intervalo_segundos >= 30),
+    CONSTRAINT chk_ativo_monitorado_tipo
+        CHECK (tipo_coleta IN ('COTACAO', 'COTACAO_E_HISTORICO'))
+);

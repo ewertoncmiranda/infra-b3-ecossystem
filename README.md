@@ -84,6 +84,8 @@ docker-compose down
 Configured Queues:
 - tratar-ativos: Raw asset processing queue
 - iniciar-treinamento: Model training initiation queue
+- sqs-registrar-series-historicas: OHLCV historical series queue (feeds gerar-insights' technical
+  signal — moving average, z-score, volume score — over serie_historica)
 ```
 
 ### S3 (Simple Storage Service)
@@ -94,6 +96,20 @@ Configured Queues:
 ```
 Configured Buckets:
 - bucket-salvar-insights: Generated insights and analysis results
+```
+
+### MySQL Schema
+
+**Init script**: `mysql-init/1 - schema.sql`
+**Resources**: Tables consumed by `gestor-ativos-brutos` and `gerar-insights`
+
+```
+Configured Tables:
+- historico_acoes: Daily quote snapshots
+- insight_acao: Fundamentalist + technical insights, consumed by gestor-ativos-brutos'
+  deterministic decision endpoint
+- serie_historica: Daily OHLCV candles, populated from sqs-registrar-series-historicas;
+  required by gerar-insights' technical signal (SerieTecnicaService)
 ```
 
 ### Configuration Management

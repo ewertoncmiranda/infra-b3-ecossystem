@@ -50,3 +50,20 @@ module "s3" {
 
   depends_on = []
 }
+
+module "sns" {
+  count  = var.create_sns ? 1 : 0
+  source = "./sns"
+
+  sns_topics = {
+    transmitir_lote_dados = {
+      name         = "transmitir-lote-dados"
+      display_name = "Transmitir lote de dados"
+    }
+  }
+
+  common_tags = local.common_tags
+  environment = var.environment
+
+  depends_on = []
+}

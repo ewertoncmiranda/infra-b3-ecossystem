@@ -52,3 +52,9 @@ variable "create_s3" {
   default     = true
 }
 
+variable "create_sns" {
+  description = "Criar recursos SNS"
+  type        = bool
+  default     = true
+}
+
