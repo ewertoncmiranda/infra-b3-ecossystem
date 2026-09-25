@@ -43,4 +43,6 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+# Contem chaves reais (BRAPI/Gemini) embutidas de proposito pra rodar local sem exportar env vars.
+docker-compose-local.yml
 
