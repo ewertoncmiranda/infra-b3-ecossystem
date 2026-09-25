@@ -4,7 +4,7 @@ services:
     image: localstack/localstack:3.3
     container_name: localstack
     environment:
-      SERVICES: sqs,s3
+      SERVICES: sqs,s3,sns
       EDGE_PORT: 4566
       AWS_DEFAULT_REGION: sa-east-1
       DEBUG: 1
