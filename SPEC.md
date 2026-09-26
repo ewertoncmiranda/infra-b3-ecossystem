@@ -108,7 +108,7 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 | CTR-02 | SQS `sqs-registrar-series-historicas` | gestor → gerar-insights | `{results:[{symbol, requestedSymbol, data:{usedInterval, usedRange, historicalDataPrice:[{date(epoch s), open, high, low, close, adjustedClose, volume, dataFormatada}]}}], requestedAt, took}` | Idempotente no consumidor (upsert por dia) |
 | CTR-03 | MySQL `insight_acao` | gerar-insights (escreve) → gestor (lê) | Colunas do `schema.sql`. `recomendacao` ∈ {`COMPRA_FORTE`, `COMPRA_MODERADA`, `VENDA_VALUATION`, `ALERTA_RISCO`, `MANTER`, `SEM_DADOS`}. `detalhes_json` v2.0; o gestor lê **apenas os campos numéricos de primeiro nível** (`earnings_yield_percent`, `desconto_maxima_52w_percent`, `crescimento_projetado_utilizado`) | Enum não compartilhado (`INT-01`); campos de primeiro nível não documentados como contrato |
 | CTR-04 | S3 `bucket-salvar-insights` | gestor → clientes HTTP | `{simbolo}/analises/{HH:mm:ss}.json` com `RespostaAnaliseIaDTO` | Sobrescrita diária (`gestor#ISS-16`) |
-| CTR-05 | MySQL `historico_acoes`, `serie_historica` | gerar-insights (escreve) | `schema.sql` | Sem leitores hoje |
+| CTR-05 | MySQL `historico_acoes`, `serie_historica` | gerar-insights e ETL/COTAHIST (escrevem) | B3 é autoritativa na mesma chave e grava `fonte='B3'`; preços permanecem brutos e sinalizados como não ajustados | Leitura analítica futura; não usar preço bruto como ajustado |
 | CTR-06 | MySQL `indicador_fundamentalista` | etl-fundamentos-cvm → gestor | Fundamentos contábeis derivados da CVM. Escrito **só** pelo ETL, lido **só** pelo gestor (`GET /analises/{simbolo}/fundamentos-cvm`). Chave natural `(simbolo, periodo, tipo_periodo)`. Métrica nula é deliberada quando o plano de contas da companhia não a comporta; a razão vai em `cobertura_json` | `P/L` e `P/VP` **não** são colunas: o gestor os deriva na leitura cruzando `lpa`/`vpa` com o preço de `historico_acoes`. `fato_contabil` é landing interna do ETL e **não** é contrato de leitura |
 | CTR-07 | HTTP `GET /ativos/registrados` | gestor -> painel | Carteira monitorada. Alem da aba Monitorados, alimenta o seletor de ativos de todas as abas operacionais do painel | Virou contrato de navegacao: se cair, o front degrada para busca manual em vez de quebrar |
 
@@ -124,7 +124,7 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 |---|---|---|
 | REQ-01 | Subir o ecossistema completo com um comando (`docker compose up -d`) | IMPLEMENTADO (com ressalvas `ISS-03`, `ISS-05`) |
 | REQ-02 | Provisionar filas, bucket e tópico automaticamente antes dos serviços | IMPLEMENTADO |
-| REQ-03 | Criar o schema MySQL de forma reprodutível, inclusive em bancos já existentes | PARCIAL (`ISS-03`) |
+| REQ-03 | Criar o schema MySQL de forma reprodutível, inclusive em bancos já existentes | IMPLEMENTADO com Flyway (2026-09-26) |
 | REQ-04 | Ter logs e métricas dos dois serviços centralizados | PARCIAL (`ISS-08`, `INT-06`) |
 | REQ-05 | Ambiente de desenvolvimento com build local dos serviços | NÃO FUNCIONAL (`ISS-04`) |
 
@@ -134,7 +134,7 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 |---|---|---|
 | NFR-01 | Nenhum segredo em arquivos do repositório ou no disco sem proteção | NÃO ATENDIDO (`ISS-01`) |
 | NFR-02 | Versões de imagem fixadas (sem `latest`) para reprodutibilidade | NÃO ATENDIDO (`ISS-05`) |
-| NFR-03 | Toda fila de trabalho com DLQ e `visibility_timeout` adequado | NÃO ATENDIDO (`ISS-02`) |
+| NFR-03 | Toda fila de trabalho com DLQ e `visibility_timeout` adequado | ATENDIDO (2026-09-26) |
 | NFR-04 | Entrega *at-least-once* tratada com idempotência ponta a ponta | NÃO ATENDIDO (`INT-03`) |
 | NFR-05 | Schema com dono único e migrations versionadas | NÃO ATENDIDO (`INT-04`) |
 | NFR-06 | O ecossistema sobe em máquina de 8 GB de RAM (perfil sem ELK opcional) | A VERIFICAR (`ISS-09`) |
@@ -161,8 +161,8 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 | ID | Sev. | Problema | Evidência | Impacto | Correção sugerida | Status |
 |---|---|---|---|---|---|---|
 | ISS-01 | **Crítico** | Chaves reais BRAPI/Gemini em texto puro | `docker-compose-local.yml` (não versionado, mas sem proteção no `.gitignore`); também em `gestor/src/main/resources/application-test.properties` | Vazamento no primeiro `git add .` | Revogar e gerar novas chaves; mover para `.env` (listado no `.gitignore`) com `env_file`; adicionar `docker-compose-local.yml`/`.env` ao `.gitignore` ou usar só `${VAR}`; gitleaks no CI | ABERTO |
-| ISS-02 | Alto | Filas sem DLQ e sem `visibility_timeout`/`redrive_policy` | `infra/sqs/main.tf`, `infra/locals.tf` | Mensagem venenosa em loop por até 1 dia e depois perdida | Módulo SQS com DLQ opcional (`maxReceiveCount=5`), retenção de 4 a 14 dias na DLQ, `visibility_timeout` ≥ 6× o tempo de processamento | ABERTO |
-| ISS-03 | Alto | `mysql-init` só roda com volume vazio; a nova tabela `serie_historica` não é criada em ambientes que já existem | comportamento da imagem `mysql:8.0` + volume `mysql_data` | Worker Python falha ao gravar a série (erro de tabela inexistente → mensagem em retry infinito) | Migrations versionadas (INT-04) ou documentar `docker compose down -v`; script idempotente executado por um serviço one-shot `db-migrate` | ABERTO |
+| ISS-02 | Alto | Filas sem DLQ e sem `visibility_timeout`/`redrive_policy` | Módulo cria uma DLQ por fila, `maxReceiveCount=5`, retenção de 14 dias e visibilidade de 120 s | Mensagem venenosa é isolada | Validar no LocalStack após apply | CONCLUIDO (2026-09-26) |
+| ISS-03 | Alto | `mysql-init` só roda com volume vazio | Compose executa Flyway one-shot com migrations versionadas e o gestor valida o schema | Bancos existentes recebem as colunas e índices novos | Migração V2 é idempotente | CONCLUIDO (2026-09-26) |
 | ISS-04 | Alto | `docker-compose-local.yml` aponta para contextos de build inexistentes (`./gestor-ativos-brutos`, `./gerar-insights`) | `docker-compose-local.yml` | Ambiente de desenvolvimento local não sobe | `context: ../gestor-ativos-brutos/gestor-ativos-brutos` e `../gerar-insights/gerar-insights`, ou variável `ECOSYSTEM_ROOT`; usar `docker-compose.override.yml` para builds locais | ABERTO |
 | ISS-05 | Médio | Imagens `latest` (serviços, prometheus, grafana, terraform) e tag `latest` publicada a partir de `develop` | `docker-compose.yml`, workflows | Build não reproduzível; `develop` quebrado vira `latest` | Fixar versões/digests; `latest` só a partir de tag semver em `main` | ABERTO |
 | ISS-06 | Médio | O compose sobrescreve o `entrypoint.sh` do provisionador, pulando `validate`/`plan` e os logs estruturados | `docker-compose.yml` (`entrypoint: terraform init && apply`) | Perde as validações que a imagem oferece | Remover o override e usar o `ENTRYPOINT` da imagem | ABERTO |
@@ -183,18 +183,18 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 | ID | Tarefa | Resolve | Repos | Critério de aceite | Status |
 |---|---|---|---|---|---|
 | TASK-01 | Revogar e gerar novas chaves BRAPI/Gemini; `.env` + `.env.example`; gitleaks nos 3 CIs | ISS-01, NFR-01 | infra, gestor | Nenhum segredo em `git grep`; pipeline bloqueia segredo | ABERTO |
-| TASK-25 | Serie historica longa via COTAHIST da B3, quebrando o teto de 3 meses da BRAPI | CTR-05 | infra, etl | Carga de WEGE3 grava ~250 candles/ano com fonte='B3'; precos batem com o arquivo /100 | ABERTO |
-| TASK-26 | Decidir e implementar o ajuste por proventos da serie do COTAHIST (a fonte entrega preco BRUTO) | TASK-20 | etl | Serie ajustada, ou serie bruta sinalizada como tal na interface | ABERTO |
-| TASK-27 | Registrar em CTR-05 o segundo escritor de serie_historica (B3 alem de BRAPI) e a regra de precedencia | TASK-20 | infra | CTR-05 nomeia os dois escritores e diz qual vence na mesma chave | ABERTO |
+| TASK-25 | Série histórica longa via COTAHIST da B3, quebrando o teto de 3 meses da BRAPI | CTR-05 | infra, etl | Carga filtra ativos monitorados, divide preços por 100 e grava `fonte='B3'` | CONCLUIDO (2026-09-26) |
+| TASK-26 | Decidir e implementar o ajuste por proventos da série do COTAHIST (a fonte entrega preço bruto) | TASK-20 | etl | Fonte estruturada oficial identificada no UP2DATA, sem contrato gratuito confirmado; série permanece bruta e explicitamente sinalizada | BLOQUEADO por fonte/licença |
+| TASK-27 | Registrar em CTR-05 o segundo escritor de `serie_historica` (B3 além de BRAPI) e a regra de precedência | TASK-20 | infra | CTR-05 nomeia os dois escritores e diz qual vence na mesma chave | CONCLUIDO (2026-09-26) |
 | TASK-02 | Corrigir os contextos de build do compose local e usar o mesmo healthcheck | ISS-04, ISS-11 | infra | `docker compose -f docker-compose-local.yml up --build` sobe tudo *healthy* | ABERTO |
-| TASK-03 | Serviço one-shot `db-migrate` (ou Flyway) que aplica o schema de forma idempotente | ISS-03, INT-04 | infra | Com volume antigo, `serie_historica` existe após `up` | ABERTO |
+| TASK-03 | Serviço one-shot `db-migrate` (Flyway) que aplica o schema de forma idempotente | ISS-03, INT-04 | infra | Com volume antigo, colunas e índices novos existem após `up` | CONCLUIDO (2026-09-26) |
 | TASK-04 | Merge coordenado das features pendentes na ordem infra → gerar-insights → gestor | ISS-13 | todos | Os 3 repos com `git status` limpo e PRs mergeados em `develop` | ABERTO |
 
 ### Fase 1 — Contratos e confiabilidade
 
 | ID | Tarefa | Resolve | Repos | Critério de aceite | Depende de | Status |
 |---|---|---|---|---|---|---|
-| TASK-10 | DLQ + `visibility_timeout` + retenção no módulo SQS | ISS-02, NFR-03 | infra, gerar-insights | Mensagem que falha 5× vai para `<fila>-dlq` | — | ABERTO |
+| TASK-10 | DLQ + `visibility_timeout` + retenção no módulo SQS | ISS-02, NFR-03 | infra, gerar-insights | Mensagem que falha 5× vai para `<fila>-dlq` | — | CONCLUIDO (2026-09-26) |
 | TASK-11 | Enum de recomendações + `schemaVersion` + JSON Schema dos payloads em `contracts/` neste repo | INT-01, INT-05, CTR-01..03 | todos | Testes de contrato nos dois serviços validam contra `contracts/*.schema.json` | — | ABERTO |
 | TASK-12 | Idempotência ponta a ponta (`dedupKey`, `UNIQUE`, GET sem efeito colateral) | INT-03, INT-07, NFR-04 | todos | Reenviar a mesma mensagem 3× gera 1 linha | TASK-11 | ABERTO |
 | TASK-13 | Dono único de schema com migrations; gestor em `ddl-auto=validate` | INT-04, NFR-05 | todos | DEC-01 registrada; startup falha se houver drift | DEC-01 | ABERTO |

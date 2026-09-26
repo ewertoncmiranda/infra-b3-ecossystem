@@ -59,6 +59,24 @@ services:
       timeout: 3s
       retries: 20
 
+  db-migrate:
+    image: flyway/flyway:10.17.0
+    container_name: db-migrate
+    command:
+      - -url=jdbc:mysql://mysql:3306/minha_base?allowPublicKeyRetrieval=true&useSSL=false
+      - -user=spring
+      - -password=spring123
+      - -baselineOnMigrate=true
+      - -baselineVersion=1
+      - migrate
+    volumes:
+      - ./mysql-migrations:/flyway/sql:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - observability
+
   gestor-ativos-brutos:
     image: ewertonmiranda/gestor-ativos-brutos:latest
     container_name: gestor-ativos-brutos
@@ -66,6 +84,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       localstack:
         condition: service_healthy
       my-terraform-provisioner:
@@ -75,6 +95,7 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: dev
       SERVER_PORT: 8091
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
 
       AWS_REGION: sa-east-1
       AWS_ACCESS_KEY_ID: test
@@ -105,6 +126,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       localstack:
         condition: service_healthy
       my-terraform-provisioner:
@@ -153,6 +176,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       localstack:
         condition: service_healthy
       my-terraform-provisioner:

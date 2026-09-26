@@ -3,6 +3,8 @@
 **Escrito em:** 2026-09-26
 **Para:** quem continuar o trabalho (humano ou outro modelo), sem acesso à conversa que originou isto.
 
+> **Atualização de execução — 2026-09-26:** foram implementados a ingestão COTAHIST/B3, o cálculo TTM com ITR, a atomicidade e idempotência do worker, a contagem da família `VENDA_*`, DLQs, Flyway e o ajuste de fixação da tela de velas. A série COTAHIST permanece bruta: o ajuste por eventos corporativos aguarda definição de uma fonte estruturada/licenciada. Credenciais locais não fazem parte deste conjunto de commits.
+
 Este documento é autossuficiente de propósito. Leia as seções 1 e 2 antes de escrever qualquer linha de código — a seção 2 contém decisões que são fáceis de desfazer sem perceber.
 
 ---

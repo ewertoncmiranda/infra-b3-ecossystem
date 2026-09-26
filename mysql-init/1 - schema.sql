@@ -1,6 +1,7 @@
 -- Tabela de histórico de ativos
 CREATE TABLE IF NOT EXISTS historico_acoes (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    dedup_key VARCHAR(64),
 
     simbolo VARCHAR(10) NOT NULL,
     timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -24,12 +25,14 @@ CREATE TABLE IF NOT EXISTS historico_acoes (
     -- Índices para melhor performance
     INDEX idx_simbolo (simbolo),
     INDEX idx_timestamp (timestamp),
-    INDEX idx_simbolo_timestamp (simbolo, timestamp)
+    INDEX idx_simbolo_timestamp (simbolo, timestamp),
+    UNIQUE KEY uq_historico_acoes_dedup_key (dedup_key)
 );
 
 -- Tabela de insights extraídos das análises
 CREATE TABLE IF NOT EXISTS insight_acao (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    dedup_key VARCHAR(64),
     simbolo VARCHAR(10) NOT NULL,
     data_analise DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     preco_justo_graham DECIMAL(12,4),
@@ -38,7 +41,8 @@ CREATE TABLE IF NOT EXISTS insight_acao (
     detalhes_json JSON,
 
     INDEX idx_simbolo_insight (simbolo),
-    INDEX idx_data_analise (data_analise)
+    INDEX idx_data_analise (data_analise),
+    UNIQUE KEY uq_insight_acao_dedup_key (dedup_key)
 );
 
 -- Tabela de candles diarios de series historicas

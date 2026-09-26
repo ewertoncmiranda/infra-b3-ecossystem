@@ -4,34 +4,42 @@ module "sqs" {
 
   sqs_queues = {
     tratar_ativos = {
-      name                      = "tratar-ativos"
-      delay_seconds             = local.sqs_config.delay_seconds
-      max_message_size          = local.sqs_config.max_message_size
-      message_retention_seconds = local.sqs_config.message_retention_seconds
-      receive_wait_time_seconds = local.sqs_config.receive_wait_time_seconds
+      name                       = "tratar-ativos"
+      delay_seconds              = local.sqs_config.delay_seconds
+      max_message_size           = local.sqs_config.max_message_size
+      message_retention_seconds  = local.sqs_config.message_retention_seconds
+      receive_wait_time_seconds  = local.sqs_config.receive_wait_time_seconds
+      visibility_timeout_seconds = local.sqs_config.visibility_timeout_seconds
+      max_receive_count          = local.sqs_config.max_receive_count
     }
     iniciar_treinamento = {
-      name                      = "sqs-iniciar-treinamento"
-      delay_seconds             = local.sqs_config.delay_seconds
-      max_message_size          = local.sqs_config.max_message_size
-      message_retention_seconds = local.sqs_config.message_retention_seconds
-      receive_wait_time_seconds = local.sqs_config.receive_wait_time_seconds
+      name                       = "sqs-iniciar-treinamento"
+      delay_seconds              = local.sqs_config.delay_seconds
+      max_message_size           = local.sqs_config.max_message_size
+      message_retention_seconds  = local.sqs_config.message_retention_seconds
+      receive_wait_time_seconds  = local.sqs_config.receive_wait_time_seconds
+      visibility_timeout_seconds = local.sqs_config.visibility_timeout_seconds
+      max_receive_count          = local.sqs_config.max_receive_count
     }
     registrar_series_historicas = {
-      name                      = "sqs-registrar-series-historicas"
-      delay_seconds             = local.sqs_config.delay_seconds
-      max_message_size          = local.sqs_config.max_message_size
-      message_retention_seconds = local.sqs_config.message_retention_seconds
-      receive_wait_time_seconds = local.sqs_config.receive_wait_time_seconds
+      name                       = "sqs-registrar-series-historicas"
+      delay_seconds              = local.sqs_config.delay_seconds
+      max_message_size           = local.sqs_config.max_message_size
+      message_retention_seconds  = local.sqs_config.message_retention_seconds
+      receive_wait_time_seconds  = local.sqs_config.receive_wait_time_seconds
+      visibility_timeout_seconds = local.sqs_config.visibility_timeout_seconds
+      max_receive_count          = local.sqs_config.max_receive_count
     }
     # Publicada pelo etl-fundamentos-cvm ao concluir uma carga; sinaliza ao
     # gerar-insights quais simbolos tiveram fundamentos atualizados.
     fundamentos_atualizados = {
-      name                      = "sqs-fundamentos-atualizados"
-      delay_seconds             = local.sqs_config.delay_seconds
-      max_message_size          = local.sqs_config.max_message_size
-      message_retention_seconds = local.sqs_config.message_retention_seconds
-      receive_wait_time_seconds = local.sqs_config.receive_wait_time_seconds
+      name                       = "sqs-fundamentos-atualizados"
+      delay_seconds              = local.sqs_config.delay_seconds
+      max_message_size           = local.sqs_config.max_message_size
+      message_retention_seconds  = local.sqs_config.message_retention_seconds
+      receive_wait_time_seconds  = local.sqs_config.receive_wait_time_seconds
+      visibility_timeout_seconds = local.sqs_config.visibility_timeout_seconds
+      max_receive_count          = local.sqs_config.max_receive_count
     }
   }
 
