@@ -312,3 +312,39 @@ CREATE TABLE IF NOT EXISTS etl_execucao (
     CONSTRAINT chk_etl_execucao_status
         CHECK (status IN ('EM_ANDAMENTO', 'SUCESSO', 'PULADO', 'ERRO'))
 );
+
+-- Comunicados oficiais da base IPE da CVM (fatos relevantes, comunicados ao
+-- mercado, proventos...). Mesmo DDL de mysql-migrations/V3__comunicados_cvm.sql,
+-- repetido aqui para volume novo ja nascer com a tabela. Contrato: CTR-08.
+-- Chave natural: numProtocolo do link de download (Protocolo_Entrega vem
+-- vazio nos relatorios automaticos de proventos). Guarda CNPJ, nao ticker:
+-- a traducao e feita na leitura via cvm_ticker.
+CREATE TABLE IF NOT EXISTS comunicado_cvm (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+    protocolo_cvm VARCHAR(20) NOT NULL,
+    protocolo_entrega VARCHAR(40) NULL,
+    versao SMALLINT NOT NULL DEFAULT 1,
+
+    cnpj VARCHAR(20) NOT NULL,
+    codigo_cvm VARCHAR(10) NULL,
+
+    categoria VARCHAR(40) NOT NULL,
+    categoria_original VARCHAR(200) NOT NULL,
+    tipo VARCHAR(120) NULL,
+    especie VARCHAR(120) NULL,
+    assunto TEXT NULL,
+
+    data_referencia DATE NULL,
+    data_entrega DATE NOT NULL,
+    link_download VARCHAR(300) NOT NULL,
+
+    criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uq_comunicado_cvm_protocolo (protocolo_cvm),
+    INDEX idx_comunicado_cvm_cnpj_data (cnpj, data_entrega),
+    INDEX idx_comunicado_cvm_categoria_data (categoria, data_entrega),
+    INDEX idx_comunicado_cvm_data (data_entrega),
+    FULLTEXT KEY ft_comunicado_cvm_assunto (assunto)
+);

@@ -198,6 +198,7 @@ services:
 
       FUNDAMENTOS_QUEUE_NAME: sqs-fundamentos-atualizados
       FUNDAMENTOS_QUEUE_URL: http://localstack:4566/000000000000/sqs-fundamentos-atualizados
+      COMUNICADOS_QUEUE_NAME: sqs-comunicados-publicados
 
       CVM_BASE_URL: https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC
       # Janela estreita de proposito: a rota de fundamentos serve o exercicio
