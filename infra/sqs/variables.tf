@@ -1,11 +1,13 @@
 variable "sqs_queues" {
   description = "Mapa de filas SQS a criar"
   type = map(object({
-    name                      = string
-    delay_seconds             = optional(number, 0)
-    max_message_size          = optional(number, 262144)
-    message_retention_seconds = optional(number, 86400)
-    receive_wait_time_seconds = optional(number, 10)
+    name                       = string
+    delay_seconds              = optional(number, 0)
+    max_message_size           = optional(number, 262144)
+    message_retention_seconds  = optional(number, 86400)
+    receive_wait_time_seconds  = optional(number, 10)
+    visibility_timeout_seconds = optional(number, 120)
+    max_receive_count          = optional(number, 5)
   }))
 }
 
