@@ -175,7 +175,10 @@ services:
       FUNDAMENTOS_QUEUE_URL: http://localstack:4566/000000000000/sqs-fundamentos-atualizados
 
       CVM_BASE_URL: https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC
-      CVM_ANOS: "2019-2025"
+      # Janela estreita de proposito: a rota de fundamentos serve o exercicio
+      # mais recente, entao carregar 7 anos so gasta banda e tempo. Alargue
+      # quando a serie historica de indicadores for exposta.
+      CVM_ANOS: "2024-2025"
       CVM_CACHE_DIR: /var/cache/cvm
 
       LOG_LEVEL: INFO
