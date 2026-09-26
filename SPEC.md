@@ -108,8 +108,9 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 | CTR-04 | S3 `bucket-salvar-insights` | gestor → clientes HTTP | `{simbolo}/analises/{HH:mm:ss}.json` com `RespostaAnaliseIaDTO` | Sobrescrita diária (`gestor#ISS-16`) |
 | CTR-05 | MySQL `historico_acoes`, `serie_historica` | gerar-insights (escreve) | `schema.sql` | Sem leitores hoje |
 | CTR-06 | MySQL `indicador_fundamentalista` | etl-fundamentos-cvm → gestor | Fundamentos contábeis derivados da CVM. Escrito **só** pelo ETL, lido **só** pelo gestor (`GET /analises/{simbolo}/fundamentos-cvm`). Chave natural `(simbolo, periodo, tipo_periodo)`. Métrica nula é deliberada quando o plano de contas da companhia não a comporta; a razão vai em `cobertura_json` | `P/L` e `P/VP` **não** são colunas: o gestor os deriva na leitura cruzando `lpa`/`vpa` com o preço de `historico_acoes`. `fato_contabil` é landing interna do ETL e **não** é contrato de leitura |
+| CTR-07 | HTTP `GET /ativos/registrados` | gestor -> painel | Carteira monitorada. Alem da aba Monitorados, alimenta o seletor de ativos de todas as abas operacionais do painel | Virou contrato de navegacao: se cair, o front degrada para busca manual em vez de quebrar |
 
-**Regra de evolução:** qualquer mudança em CTR-01..06 incrementa uma versão no payload (`schemaVersion` na mensagem SQS; `versao_payload` no `detalhes_json`), e o consumidor precisa aceitar a versão N e a N−1 durante a transição.
+**Regra de evolução:** qualquer mudança em CTR-01..07 incrementa uma versão no payload (`schemaVersion` na mensagem SQS; `versao_payload` no `detalhes_json`), e o consumidor precisa aceitar a versão N e a N−1 durante a transição.
 
 ---
 
