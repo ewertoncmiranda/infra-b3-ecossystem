@@ -44,6 +44,8 @@ Plataforma de acompanhamento de ações da B3 que coleta cotações, calcula val
                        │   ├ sqs-iniciar-treinamento (sem uso)  MySQL 8 (:3305 host / :3306 rede)       │
                        │   └ SNS transmitir-lote-dados (sem uso)  historico_acoes, insight_acao,        │
                        │                                          serie_historica                       │
+                       │ etl-fundamentos-cvm (job em lote, profile "etl")                              │
+                       │   CVM (HTTPS) ──> DFP/ITR/FCA/FRE ──> fato_contabil, indicador_fundamentalista │
                        │ terraform-provisioner (one-shot) ──> cria SQS/S3/SNS no LocalStack              │
                        │ Observabilidade: Prometheus :9090 · Grafana :3000 · ELK (ES :9200, Logstash     │
                        │                  :5000, Kibana :5601)                                          │
@@ -105,8 +107,9 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 | CTR-03 | MySQL `insight_acao` | gerar-insights (escreve) → gestor (lê) | Colunas do `schema.sql`. `recomendacao` ∈ {`COMPRA_FORTE`, `COMPRA_MODERADA`, `VENDA_VALUATION`, `ALERTA_RISCO`, `MANTER`, `SEM_DADOS`}. `detalhes_json` v2.0; o gestor lê **apenas os campos numéricos de primeiro nível** (`earnings_yield_percent`, `desconto_maxima_52w_percent`, `crescimento_projetado_utilizado`) | Enum não compartilhado (`INT-01`); campos de primeiro nível não documentados como contrato |
 | CTR-04 | S3 `bucket-salvar-insights` | gestor → clientes HTTP | `{simbolo}/analises/{HH:mm:ss}.json` com `RespostaAnaliseIaDTO` | Sobrescrita diária (`gestor#ISS-16`) |
 | CTR-05 | MySQL `historico_acoes`, `serie_historica` | gerar-insights (escreve) | `schema.sql` | Sem leitores hoje |
+| CTR-06 | MySQL `indicador_fundamentalista` | etl-fundamentos-cvm → gestor | Fundamentos contábeis derivados da CVM. Escrito **só** pelo ETL, lido **só** pelo gestor (`GET /analises/{simbolo}/fundamentos-cvm`). Chave natural `(simbolo, periodo, tipo_periodo)`. Métrica nula é deliberada quando o plano de contas da companhia não a comporta; a razão vai em `cobertura_json` | `P/L` e `P/VP` **não** são colunas: o gestor os deriva na leitura cruzando `lpa`/`vpa` com o preço de `historico_acoes`. `fato_contabil` é landing interna do ETL e **não** é contrato de leitura |
 
-**Regra de evolução:** qualquer mudança em CTR-01..05 incrementa uma versão no payload (`schemaVersion` na mensagem SQS; `versao_payload` no `detalhes_json`), e o consumidor precisa aceitar a versão N e a N−1 durante a transição.
+**Regra de evolução:** qualquer mudança em CTR-01..06 incrementa uma versão no payload (`schemaVersion` na mensagem SQS; `versao_payload` no `detalhes_json`), e o consumidor precisa aceitar a versão N e a N−1 durante a transição.
 
 ---
 

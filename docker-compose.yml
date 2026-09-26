@@ -139,6 +139,60 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Job em lote, nao servico: carrega fundamentos da CVM no MySQL e encerra.
+  # Fica fora do `docker compose up` normal (profile "etl"); rode sob demanda com
+  #   docker compose --profile etl run --rm etl-fundamentos-cvm
+  # O agendamento (semanal basta: DFP sai 1x/ano, ITR 4x/ano) fica no cron do
+  # host ou no GitHub Actions, nao num container dormindo.
+  etl-fundamentos-cvm:
+    image: ewertonmiranda/etl-fundamentos-cvm:latest
+    container_name: etl-fundamentos-cvm
+    profiles:
+      - etl
+    restart: "no"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      my-terraform-provisioner:
+        condition: service_completed_successfully
+    environment:
+      ENVIRONMENT: docker
+
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: spring
+      DB_PASS: spring123
+      DB_NAME: minha_base
+
+      LOCALSTACK_ENDPOINT: http://localstack:4566
+      AWS_REGION: sa-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+
+      FUNDAMENTOS_QUEUE_NAME: sqs-fundamentos-atualizados
+      FUNDAMENTOS_QUEUE_URL: http://localstack:4566/000000000000/sqs-fundamentos-atualizados
+
+      CVM_BASE_URL: https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC
+      CVM_ANOS: "2019-2025"
+      CVM_CACHE_DIR: /var/cache/cvm
+
+      LOG_LEVEL: INFO
+      RETRY_ATTEMPTS: 3
+      RETRY_DELAY: 10
+    volumes:
+      # Mantem os ZIPs ja baixados entre execucoes; com o ETag gravado em
+      # etl_execucao, um run sem novidade custa 3 requisicoes HEAD.
+      - cvm_cache:/var/cache/cvm
+    networks:
+      - observability
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   painel-ativos-frontend:
     image: ewertonmiranda/front-end-monitoramento-b3:latest
     container_name: painel-ativos-frontend
@@ -241,6 +295,7 @@ services:
 volumes:
   mysql_data:
   localstack_data:
+  cvm_cache:
   elasticsearch_data:
   prometheus_data:
   grafana_data:

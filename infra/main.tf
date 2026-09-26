@@ -24,6 +24,15 @@ module "sqs" {
       message_retention_seconds = local.sqs_config.message_retention_seconds
       receive_wait_time_seconds = local.sqs_config.receive_wait_time_seconds
     }
+    # Publicada pelo etl-fundamentos-cvm ao concluir uma carga; sinaliza ao
+    # gerar-insights quais simbolos tiveram fundamentos atualizados.
+    fundamentos_atualizados = {
+      name                      = "sqs-fundamentos-atualizados"
+      delay_seconds             = local.sqs_config.delay_seconds
+      max_message_size          = local.sqs_config.max_message_size
+      message_retention_seconds = local.sqs_config.message_retention_seconds
+      receive_wait_time_seconds = local.sqs_config.receive_wait_time_seconds
+    }
   }
 
   common_tags = local.common_tags
