@@ -206,6 +206,8 @@ services:
       # quando a serie historica de indicadores for exposta.
       CVM_ANOS: "2024-2025"
       CVM_CACHE_DIR: /var/cache/cvm
+      # COTAHIST (~90 MB/ano) no mesmo volume: ano fechado nao e baixado de novo.
+      B3_CACHE_DIR: /var/cache/cvm/b3
 
       LOG_LEVEL: INFO
       RETRY_ATTEMPTS: 3

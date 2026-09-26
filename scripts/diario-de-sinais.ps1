@@ -44,5 +44,12 @@ foreach ($comando in @('registrar', 'avaliar')) {
         $falhou = $true
     }
 }
-# Codigo de saida != 0 aparece como falha no Agendador de Tarefas.
-if ($falhou) { exit 1 }
+# Codigo de saida != 0 aparece como falha no Agendador de Tarefas; o alerta
+# (Telegram, se configurado - ver comum.ps1) avisa sem precisar abrir o log.
+if ($falhou) {
+    . (Join-Path $PSScriptRoot 'comum.ps1')
+    if (-not (Enviar-Alerta "diario de sinais falhou. Log: $log")) {
+        Add-Content -Path $log -Value 'alerta nao enviado (Telegram nao configurado)'
+    }
+    exit 1
+}

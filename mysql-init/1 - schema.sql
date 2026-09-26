@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS fato_contabil (
     INDEX idx_fato_contabil_resolucao (cnpj, dt_fim_exerc, demonstracao, conta_fixa),
 
     CONSTRAINT chk_fato_contabil_tipo_doc
-        CHECK (tipo_doc IN ('DFP', 'ITR')),
+        CHECK (tipo_doc IN ('DFP', 'ITR', 'TTM')),
     CONSTRAINT chk_fato_contabil_grupo
         CHECK (grupo IN ('con', 'ind'))
 );
@@ -234,6 +234,8 @@ CREATE TABLE IF NOT EXISTS indicador_fundamentalista (
     cnpj VARCHAR(20) NOT NULL,
     periodo DATE NOT NULL,
     tipo_periodo VARCHAR(12) NOT NULL DEFAULT 'ANUAL',
+    -- DT_RECEB da CVM: quando o balanco ficou publico (point-in-time, V6)
+    data_entrega DATE NULL,
 
     -- insumos
     lucro_liquido DECIMAL(24,2),
@@ -278,11 +280,12 @@ CREATE TABLE IF NOT EXISTS indicador_fundamentalista (
     INDEX idx_indicador_simbolo (simbolo),
     INDEX idx_indicador_cnpj_periodo (cnpj, periodo),
     INDEX idx_indicador_simbolo_periodo (simbolo, periodo),
+    INDEX idx_indicador_simbolo_entrega (simbolo, data_entrega),
 
     CONSTRAINT chk_indicador_tipo_periodo
         CHECK (tipo_periodo IN ('ANUAL', 'TRIMESTRAL', 'TTM')),
     CONSTRAINT chk_indicador_tipo_doc
-        CHECK (tipo_doc IN ('DFP', 'ITR'))
+        CHECK (tipo_doc IN ('DFP', 'ITR', 'TTM'))
 );
 
 -- Log append-only das execucoes do ETL.
@@ -387,9 +390,12 @@ CREATE TABLE IF NOT EXISTS sinal_resultado (
 
     retorno_bruto DECIMAL(12,6) NOT NULL,
     retorno_liquido DECIMAL(12,6) NOT NULL,
-    retorno_bova11 DECIMAL(12,6) NULL,
+    -- Benchmark de mercado: media simples da carteira monitorada no mesmo
+    -- periodo (V5 trocou o BOVA11, que nao e coletado).
+    retorno_carteira DECIMAL(12,6) NULL,
     retorno_cdi DECIMAL(12,6) NULL,
-    excesso_bova11 DECIMAL(12,6) NULL,
+    excesso_carteira DECIMAL(12,6) NULL,
+    ativos_na_carteira SMALLINT NULL,
     excesso_cdi DECIMAL(12,6) NULL,
 
     -- NULL = recomendacao sem direcao (MANTER, ALERTA_RISCO): nao ha aposta
@@ -403,3 +409,96 @@ CREATE TABLE IF NOT EXISTS sinal_resultado (
     CONSTRAINT fk_sinal_resultado_sinal
         FOREIGN KEY (sinal_id) REFERENCES sinal_diario (id)
 );
+
+-- Identidade canonica, COTAHIST oficial e backtest (V6; CTR-12..14).
+CREATE TABLE IF NOT EXISTS ativo_identidade (
+    simbolo             VARCHAR(10)  NOT NULL,
+    simbolo_canonico    VARCHAR(10)  NOT NULL,
+    cnpj                VARCHAR(20)  NULL,
+    -- 0 quando o codigo antigo NAO e o mesmo papel (incorporacao, troca por
+    -- BDR): a serie de preco dele nao pode ser emendada na do canonico.
+    continuidade_preco  TINYINT(1)   NOT NULL DEFAULT 1,
+    negociado_ate       DATE         NULL,
+    origem              VARCHAR(20)  NOT NULL DEFAULT 'CURADORIA',
+    observacao          VARCHAR(255) NULL,
+    criado_em           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (simbolo),
+    KEY idx_ativo_identidade_canonico (simbolo_canonico)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+INSERT INTO ativo_identidade (simbolo, simbolo_canonico, cnpj, continuidade_preco, negociado_ate, observacao) VALUES
+    ('AXIA3',  'AXIA3',  '00.001.180/0001-26', 1, NULL, 'Eletrobras, renomeada Axia Energia'),
+    ('ELET3',  'AXIA3',  '00.001.180/0001-26', 1, NULL, 'Codigo antigo da Eletrobras (mesmo papel)'),
+    ('EMBJ3',  'EMBJ3',  '07.689.002/0001-89', 1, NULL, 'Embraer'),
+    ('EMBR3',  'EMBJ3',  '07.689.002/0001-89', 1, NULL, 'Codigo antigo da Embraer (mesmo papel)'),
+    ('JBSS32', 'JBSS32', '49.115.815/0001-05', 1, NULL, 'BDR da JBS N.V.'),
+    ('JBSS3',  'JBSS32', '02.916.265/0001-60', 0, NULL, 'JBS S.A., trocada por BDR da JBS N.V.: outro emissor'),
+    ('MBRF3',  'MBRF3',  '03.853.896/0001-40', 1, NULL, 'Marfrig, renomeada MBRF Global Foods'),
+    ('MRFG3',  'MBRF3',  '03.853.896/0001-40', 1, NULL, 'Codigo antigo da Marfrig (mesmo papel)'),
+    ('BRFS3',  'MBRF3',  '01.838.723/0001-27', 0, '2025-09-22', 'BRF incorporada pela MBRF: relacao de troca, nao mesmo papel'),
+    ('CSNA3',  'CSNA3',  '33.042.730/0001-04', 1, NULL, 'FCA traz o codigo "4030" em vez do ticker'),
+    ('RAIZ4',  'RAIZ4',  '33.453.598/0001-23', 1, NULL, 'FCA traz data de fim de negociacao incorreta')
+ON DUPLICATE KEY UPDATE
+    simbolo_canonico = VALUES(simbolo_canonico),
+    cnpj = VALUES(cnpj),
+    continuidade_preco = VALUES(continuidade_preco),
+    negociado_ate = VALUES(negociado_ate),
+    observacao = VALUES(observacao);
+
+CREATE TABLE IF NOT EXISTS cotacao_b3_diaria (
+    id                BIGINT        NOT NULL AUTO_INCREMENT,
+    -- codigo como negociado NAQUELE dia (ELET3 em 2020, AXIA3 hoje);
+    -- quem le junta pela ativo_identidade.
+    simbolo           VARCHAR(12)   NOT NULL,
+    data_pregao       DATE          NOT NULL,
+    abertura          DECIMAL(14,4) NULL,
+    maxima            DECIMAL(14,4) NULL,
+    minima            DECIMAL(14,4) NULL,
+    fechamento        DECIMAL(14,4) NULL,
+    volume            BIGINT        NULL,
+    numero_negocios   INT           NULL,
+    volume_financeiro DECIMAL(22,2) NULL,
+    criado_em         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_cotacao_b3_diaria (simbolo, data_pregao),
+    KEY idx_cotacao_b3_diaria_data (data_pregao)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS backtest_execucao (
+    id               BIGINT      NOT NULL AUTO_INCREMENT,
+    iniciado_em      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finalizado_em    DATETIME    NULL,
+    status           VARCHAR(20) NOT NULL,
+    inicio_periodo   DATE        NULL,
+    fim_periodo      DATE        NULL,
+    -- sinais ate esta data calibram; depois dela sao o teste congelado
+    corte_calibracao DATE        NOT NULL,
+    ativos           INT         NOT NULL DEFAULT 0,
+    sinais           INT         NOT NULL DEFAULT 0,
+    parametros_json  JSON        NULL,
+    observacoes      TEXT        NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT chk_backtest_execucao_status CHECK (status IN ('EM_ANDAMENTO', 'SUCESSO', 'ERRO'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS backtest_placar (
+    id                     BIGINT        NOT NULL AUTO_INCREMENT,
+    execucao_id            BIGINT        NOT NULL,
+    versao_regra           VARCHAR(20)   NOT NULL,
+    periodo                VARCHAR(12)   NOT NULL,
+    recomendacao           VARCHAR(20)   NOT NULL,
+    horizonte              SMALLINT      NOT NULL,
+    avaliados              INT           NOT NULL,
+    acertos                INT           NULL,
+    taxa_base              DECIMAL(8,6)  NULL,
+    retorno_medio          DECIMAL(12,6) NULL,
+    excesso_medio_cdi      DECIMAL(12,6) NULL,
+    excesso_medio_carteira DECIMAL(12,6) NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_backtest_placar (execucao_id, versao_regra, periodo, recomendacao, horizonte),
+    CONSTRAINT fk_backtest_placar_execucao FOREIGN KEY (execucao_id)
+        REFERENCES backtest_execucao (id) ON DELETE CASCADE,
+    CONSTRAINT chk_backtest_placar_periodo CHECK (periodo IN ('CALIBRACAO', 'TESTE'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
