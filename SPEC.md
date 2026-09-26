@@ -29,6 +29,8 @@ Regras:
 
 ---
 
+> Continuando o trabalho? Leia [`PROXIMOS-PASSOS.md`](PROXIMOS-PASSOS.md) primeiro: ele tem o estado atual, a proxima tarefa detalhada e as decisoes que nao devem ser desfeitas sem discussao.
+
 ## 2. Visão do sistema
 
 Plataforma de acompanhamento de ações da B3 que coleta cotações, calcula valuation por regras (Graham) e produz uma análise textual com IA.
@@ -181,6 +183,9 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 | ID | Tarefa | Resolve | Repos | Critério de aceite | Status |
 |---|---|---|---|---|---|
 | TASK-01 | Revogar e gerar novas chaves BRAPI/Gemini; `.env` + `.env.example`; gitleaks nos 3 CIs | ISS-01, NFR-01 | infra, gestor | Nenhum segredo em `git grep`; pipeline bloqueia segredo | ABERTO |
+| TASK-25 | Serie historica longa via COTAHIST da B3, quebrando o teto de 3 meses da BRAPI | CTR-05 | infra, etl | Carga de WEGE3 grava ~250 candles/ano com fonte='B3'; precos batem com o arquivo /100 | ABERTO |
+| TASK-26 | Decidir e implementar o ajuste por proventos da serie do COTAHIST (a fonte entrega preco BRUTO) | TASK-20 | etl | Serie ajustada, ou serie bruta sinalizada como tal na interface | ABERTO |
+| TASK-27 | Registrar em CTR-05 o segundo escritor de serie_historica (B3 alem de BRAPI) e a regra de precedencia | TASK-20 | infra | CTR-05 nomeia os dois escritores e diz qual vence na mesma chave | ABERTO |
 | TASK-02 | Corrigir os contextos de build do compose local e usar o mesmo healthcheck | ISS-04, ISS-11 | infra | `docker compose -f docker-compose-local.yml up --build` sobe tudo *healthy* | ABERTO |
 | TASK-03 | Serviço one-shot `db-migrate` (ou Flyway) que aplica o schema de forma idempotente | ISS-03, INT-04 | infra | Com volume antigo, `serie_historica` existe após `up` | ABERTO |
 | TASK-04 | Merge coordenado das features pendentes na ordem infra → gerar-insights → gestor | ISS-13 | todos | Os 3 repos com `git status` limpo e PRs mergeados em `develop` | ABERTO |
