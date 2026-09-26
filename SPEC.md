@@ -115,7 +115,9 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 | CTR-09 | SQS `sqs-comunicados-publicados` | etl-fundamentos-cvm → (sem consumidor ainda) | Uma mensagem por ticker com documentos novos: `{schemaVersion:1, evento:"COMUNICADOS_PUBLICADOS", simbolo, cnpj, protocolos[], categorias[], dataEntregaMax}` | Falha em publicar não desfaz a carga: o dado já está no banco |
 | CTR-10 | HTTP `GET /empresas/{simbolo}/comunicados`, `GET /comunicados/newsletter` | gestor → painel | Linha do tempo por ticker (filtros `categorias`, `desde`, `ate`, `pagina`, `tamanho`) e edição por período agrupada por ticker e ordenada por relevância (`FATO_RELEVANTE` > `PROVENTOS` > `RESULTADOS` > `COMUNICADO_MERCADO` > `AVISO_ACIONISTAS` > `CALENDARIO_EVENTOS` > `ASSEMBLEIA`). Toda resposta cita a fonte (`CVM - Dados Abertos (IPE)`) e `dadosAte` | Informativo, sem recomendação de investimento |
 
-**Regra de evolução:** qualquer mudança em CTR-01..10 incrementa uma versão no payload (`schemaVersion` na mensagem SQS; `versao_payload` no `detalhes_json`), e o consumidor precisa aceitar a versão N e a N−1 durante a transição.
+| CTR-11 | MySQL `sinal_diario`, `sinal_resultado` (V4) | gerar-insights (`python -m app.validacao.diario`) → gestor/painel (futuro) | Diário de sinais (paper trading). `sinal_diario` é **só inclusão**, chave `(simbolo, data_pregao, versao_regra)`: o sinal do pregão D é o último insight entre a abertura de D (10h BRT) e a abertura do pregão seguinte. `sinal_resultado` por horizonte (21/63/126 pregões): entrada na abertura do pregão seguinte, saída no fechamento; retorno bruto/líquido (custo 0,10% ida e volta), excesso sobre BOVA11 e CDI (SGS 12, histórico desde 2016 carregado pelo gestor), `acerto` nulo para recomendação sem direção, `evento_suspeito` para salto ≥ 40% (desdobramento em preço bruto) | Sem BOVA11 em `candle_diario`, o excesso sobre o BOVA11 fica nulo |
+
+**Regra de evolução:** qualquer mudança em CTR-01..11 incrementa uma versão no payload (`schemaVersion` na mensagem SQS; `versao_payload` no `detalhes_json`), e o consumidor precisa aceitar a versão N e a N−1 durante a transição.
 
 ---
 
