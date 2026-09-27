@@ -7,8 +7,8 @@ resource "aws_s3_bucket" "buckets" {
   tags = merge(
     var.common_tags,
     {
-      Component   = "Storage"
-      BucketName  = each.key
+      Component  = "Storage"
+      BucketName = each.key
     }
   )
 }
