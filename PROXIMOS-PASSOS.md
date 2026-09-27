@@ -5,6 +5,8 @@
 
 > **Atualização de execução — 2026-09-26:** foram implementados a ingestão COTAHIST/B3, o cálculo TTM com ITR, a atomicidade e idempotência do worker, a contagem da família `VENDA_*`, DLQs, Flyway e o ajuste de fixação da tela de velas. A série COTAHIST permanece bruta: o ajuste por eventos corporativos aguarda definição de uma fonte estruturada/licenciada. Credenciais locais não fazem parte deste conjunto de commits.
 
+> **Atualização — 2026-09-27:** o plano vigente é a **Fase 3 do `SPEC.md` (seção 7, `TASK-30`..`TASK-44`)**, e o trabalho em paralelo entre sessões segue a **regra 6 da seção 1 do `SPEC.md`**. Partes abaixo (branches, estado "árvore limpa") descrevem 2026-09-26 e podem estar desatualizadas; o SPEC prevalece.
+
 Este documento é autossuficiente de propósito. Leia as seções 1 e 2 antes de escrever qualquer linha de código — a seção 2 contém decisões que são fáceis de desfazer sem perceber.
 
 ---

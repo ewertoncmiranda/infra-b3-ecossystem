@@ -496,6 +496,13 @@ CREATE TABLE IF NOT EXISTS backtest_placar (
     retorno_medio          DECIMAL(12,6) NULL,
     excesso_medio_cdi      DECIMAL(12,6) NULL,
     excesso_medio_carteira DECIMAL(12,6) NULL,
+    -- intervalo de confianca (V9, TASK-30)
+    n_excesso_cdi          INT           NULL,
+    desvio_excesso_cdi     DECIMAL(12,6) NULL,
+    n_excesso_carteira     INT           NULL,
+    desvio_excesso_carteira DECIMAL(12,6) NULL,
+    -- janelas com retorno ajustado por provento (V10, TASK-36)
+    janelas_com_provento   INT           NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
     UNIQUE KEY uq_backtest_placar (execucao_id, versao_regra, periodo, recomendacao, horizonte),
     CONSTRAINT fk_backtest_placar_execucao FOREIGN KEY (execucao_id)
