@@ -501,6 +501,8 @@ CREATE TABLE IF NOT EXISTS backtest_placar (
     desvio_excesso_cdi     DECIMAL(12,6) NULL,
     n_excesso_carteira     INT           NULL,
     desvio_excesso_carteira DECIMAL(12,6) NULL,
+    -- janelas com retorno ajustado por provento (V10, TASK-36)
+    janelas_com_provento   INT           NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
     UNIQUE KEY uq_backtest_placar (execucao_id, versao_regra, periodo, recomendacao, horizonte),
     CONSTRAINT fk_backtest_placar_execucao FOREIGN KEY (execucao_id)
