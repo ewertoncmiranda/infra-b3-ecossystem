@@ -170,8 +170,12 @@ services:
   etl-fundamentos-cvm:
     image: ewertonmiranda/etl-fundamentos-cvm:latest
     container_name: etl-fundamentos-cvm
-    profiles:
-      - etl
+    # Job, nao servico: o `up` cria o container, roda a rotina uma vez e ele
+    # para (restart "no"). Depois, o "play" do Docker Desktop roda de novo a
+    # mesma rotina - sem argumento nem variavel. Sem novidade na CVM/B3, cada
+    # carga custa so um HEAD (ETag). Cargas avulsas continuam possiveis:
+    #   docker compose -f <arquivo> run --rm --no-deps etl-fundamentos-cvm --ano 2024 --forcar
+    command: ["--rotina"]
     restart: "no"
     depends_on:
       mysql:
