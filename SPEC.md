@@ -26,6 +26,13 @@ Regras:
 3. Para referenciar IDs de outras specs, use o prefixo do repositório: `gerar-insights#ISS-01`, `gestor#ISS-02`, `infra#ISS-03`.
 4. IDs são estáveis; para descontinuar, use o status `DESCARTADO` com justificativa. Decisões viram `DEC-`.
 5. Nunca coloque segredos em arquivos de compose, tfvars ou properties versionados.
+6. **Trabalho em paralelo (várias sessões/agentes ao mesmo tempo — `TASK-43`).** Em 2026-09-27 duas sessões editaram os mesmos arquivos e uma commitou o trabalho em andamento da outra. Para não repetir:
+   - **Um dono por área de cada vez.** Antes de editar, rode `git status` no repositório: alteração não commitada que não é sua é de outra sessão — não edite esses arquivos nem os inclua em commit. Na dúvida, pergunte.
+   - **Commit só do que você alterou:** `git add <arquivos>` explícito; nunca `git add -A`, `git add .` nem `git commit -a`.
+   - **Duas sessões no mesmo repositório → worktree próprio**, cada uma na sua branch `feature-*`: `git worktree add ../<repo>-<tarefa> -b feature-<tarefa>`; o merge junta depois.
+   - **Avise ao começar e ao terminar** uma área (lista de arquivos) e antes de mexer no que é compartilhado: banco local (migrations, cargas, backtest), containers (`up --build`) e o Agendador.
+   - **Banco e containers são compartilhados:** resultado gravado por código em estado intermediário (ex.: um backtest rodado no meio da edição de outra sessão) não vale — descarte e rode de novo.
+   - **O SPEC é a fila:** pegue a tarefa marcando `EM ANDAMENTO (sessão/branch)` antes de codar; quem encontrar a marca não começa a mesma tarefa.
 
 ---
 
@@ -218,6 +225,40 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 | TASK-22 | Fixar versões de imagem; `latest` só em release | ISS-05 | Nenhum `:latest` no compose | ABERTO |
 | TASK-23 | Usar o `entrypoint.sh` do provisionador; remover `timestamp()` das tags; fmt/tflint/checkov no CI | ISS-06, ISS-10, ISS-12 | `terraform plan` limpo na 2ª execução | ABERTO |
 | TASK-24 | Decidir e implementar/remover `sqs-iniciar-treinamento` e SNS | INT-08 | DEC-03 registrada | ABERTO |
+
+### Fase 3 — Precisão e confiabilidade (plano de 2026-09-27)
+
+Ponto de partida medido: dados 31/31 com preço, balanço, data de entrega e TTM; regra oficial v1 `2026.09.27-2` com compras raras e com vantagem ainda não significativa (teste, 63 pregões: 24 janelas, 58% contra taxa-base de 52%), vendas sem vantagem e fração de vendas dependente do regime de juros (`gerar-insights#DEC-07`). Ordem sugerida: TASK-43 e TASK-30 → TASK-31 (+ TASK-39, TASK-40 em paralelo) → TASK-34, 35, 37, 38 → TASK-32, 33, 41, 42, 44.
+
+**Onda 1 — medir melhor (precisão estatística)**
+
+| ID | Tarefa | Repos | Critério de aceite | Depende de | Status |
+|---|---|---|---|---|---|
+| TASK-30 | Intervalo de confiança em todo placar: Wilson 95% para o acerto, média ± 1,96·erro-padrão para o excesso; "acima/abaixo da base" só quando o intervalo não cruza a taxa-base | gerar-insights, gestor, painel, infra (V9) | Painel mostra "58% (46–69%)"; linha sem significância aparece como "indistinguível da base" | — | CONCLUIDO (2026-09-27): V9, `tools/IntervaloConfianca` (gestor), `agregar` com desvio (gerar-insights), leitura no painel. Supõe janelas independentes — ver TASK-31 |
+| TASK-31 | Universo de backtest amplo e sem viés de sobrevivência: ações de lote padrão com ≥ 200 pregões e liquidez mínima **no ano anterior**, incluindo deslistadas, a partir do COTAHIST e dos DFP em cache; régua de mercado = média desse universo | etl, infra, gerar-insights | ≥ 3× janelas; deslistadas incluídas; intervalo de confiança por bootstrap em blocos (janelas sobrepostas e ativos correlacionados deixam o intervalo de TASK-30 otimista); cobertura de CNPJ por ano exibida; backtest < 5 min | TASK-30, **gerar-insights#TASK-59** | ABERTO — bloqueado: `cotacao_b3_diaria` hoje só tem 36 símbolos (os monitorados + alias), nenhuma deslistada. Achado em 27/09 ao investigar pra implementar; a ingestão de COTAHIST amplo (`gerar-insights#TASK-59`) precisa vir antes, senão a tabela nova reproduz o universo de hoje |
+| TASK-32 | Sinais técnicos (momentum, reversão à média) avaliados no backtest como regras próprias | gerar-insights | Placar próprio; entram na recomendação só com vantagem nos dois períodos (DEC) | TASK-31 | ABERTO |
+| TASK-33 | Curva de calibração do score de confiança (acerto real por faixa de score) | gerar-insights, gestor, painel | Gráfico no painel; DEC: recalibrar ou retirar o score | TASK-31 | ABERTO |
+
+**Onda 2 — corrigir a regra (precisão do modelo)**
+
+| ID | Tarefa | Repos | Critério de aceite | Depende de | Status |
+|---|---|---|---|---|---|
+| TASK-34 | Crescimento nominal na v1 (g real + IPCA 12m) contra Y real (Selic − IPCA), escolhido por backtest | gerar-insights | Fração de vendas varia < 10 p.p. entre calibração e teste; separação não piora; DEC | TASK-31 | ABERTO |
+| TASK-35 | `VENDA_VALUATION` vira `SEM_MARGEM` (sem direção) enquanto não houver vantagem medida com IC | gerar-insights, gestor, painel | Contrato de recomendações versionado (INT-01); tela sem "venda" generalizada | TASK-30 | ABERTO |
+| TASK-36 | Proventos: retorno e régua com proventos (feito: `gerar-insights` 7ea0d1e, 13b6287); faltam histórico anterior a 2026-09-27 (`gerar-insights#TASK-46`) e placar separando janelas com/sem dado de provento | gestor, gerar-insights | Placar diz quantas janelas foram ajustadas; histórico com fonte registrada em DEC | — | PARCIAL |
+| TASK-37 | Recalibrar limiares no universo amplo, objetivo pelo limite inferior do IC | gerar-insights | DEC com limiares e intervalo | TASK-31, TASK-34 | ABERTO |
+| TASK-38 | Decidir v1 × v2 pelos números (a vencedora nos dois períodos, com IC, vira a oficial) | gerar-insights | DEC com números; `VERSAO_REGRA` incrementada | TASK-37 | ABERTO |
+
+**Onda 3 — confiabilidade operacional**
+
+| ID | Tarefa | Repos | Critério de aceite | Depende de | Status |
+|---|---|---|---|---|---|
+| TASK-39 | Checagens de dados depois de cada carga (lucro zero com receita, LPA fora da mediana, balanço sem data de entrega, salto sem evento, papel sem CNPJ, BRAPI × COTAHIST) gravadas em `checagem_dados`; severidade ERRO vira ERRO na saúde dos dados | etl, infra (migração nova), gestor | O caso TIMS3 (lucro 0) é pego sozinho; teste de regressão | — | ABERTO |
+| TASK-40 | Alerta ativo: `checar-saude.ps1` diário lê `/validacao/saude-dados` e avisa por Telegram no estado PROBLEMA; grava `saude_dados_historico` | infra, gestor | Falha provocada chega ao celular (bot criado pelo usuário) | — | ABERTO |
+| TASK-41 | Backup fora da máquina (pasta sincronizada ou disco externo), semanal, com restauração mensal testada a partir da cópia | infra | Restauração da cópia registrada na saúde dos dados | — | ABERTO |
+| TASK-42 | CI com teste, lint e tipos antes do build nos 5 repositórios; corrigir o teste `>Formulas<` do painel | todos | Pipeline vermelho bloqueia a imagem | — | ABERTO |
+| TASK-43 | Protocolo de trabalho paralelo entre sessões/agentes (regra 6 da seção 1) | infra | Regra escrita; nenhum commit misturado depois dela | — | CONCLUIDO (2026-09-27) |
+| TASK-44 | Sequência de dias com a saúde dos dados verde, na aba Avaliação | gestor, painel | Evidência para a nota de confiabilidade 7 | TASK-40 | ABERTO |
 
 ---
 
