@@ -574,3 +574,21 @@ CREATE TABLE IF NOT EXISTS cotacao_atual (
     PRIMARY KEY (id),
     UNIQUE KEY uq_cotacao_atual_simbolo (simbolo)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Cache de proventos por emissora (B3 GetListedSupplementCompany) - ver
+-- mysql-migrations/V8 pro detalhe e a limitacao de janela de 12 meses.
+CREATE TABLE IF NOT EXISTS provento_distribuido (
+    id                       BIGINT         NOT NULL AUTO_INCREMENT,
+    simbolo                  VARCHAR(10)    NOT NULL,
+    isin                     VARCHAR(20)    NOT NULL,
+    tipo                     VARCHAR(30)    NOT NULL,
+    valor_por_acao           DECIMAL(14,8)  NOT NULL,
+    periodo_referencia       VARCHAR(30)    NULL,
+    aprovado_em              DATE           NULL,
+    ultima_data_com_direito  DATE           NULL,
+    data_pagamento           DATE           NOT NULL,
+    atualizado_em            DATETIME(6)    NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_provento_distribuido (simbolo, isin, tipo, data_pagamento),
+    INDEX idx_provento_distribuido_simbolo (simbolo)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
