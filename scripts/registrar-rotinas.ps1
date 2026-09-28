@@ -2,8 +2,8 @@
 # Rodar uma vez, num PowerShell comum (sem administrador):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\registrar-rotinas.ps1
 #
-#   B3 - Diario de sinais   dias uteis 19:00  registra e avalia os sinais
-#   B3 - Cargas ETL         dias uteis 20:00  CVM (IPE, DFP, TTM), COTAHIST; backtest as sextas
+#   B3 - Cargas ETL         dias uteis 20:00  CVM (IPE, DFP, TTM), COTAHIST, insights diarios da Base; backtest as sextas
+#   B3 - Diario de sinais   dias uteis 21:30  registra (pregoes novos do COTAHIST) e avalia os sinais
 #   B3 - Backup MySQL       todo dia   12:30  dump + restauracao testada (horario em que o PC costuma estar ligado)
 #
 # /F sobrescreve a tarefa existente. Para remover:  schtasks /Delete /TN "<nome>" /F
@@ -12,7 +12,7 @@
 
 $pasta = $PSScriptRoot
 $rotinas = @(
-    @{ Nome = 'B3 - Diario de sinais'; Script = 'diario-de-sinais.ps1'; Args = @('/SC', 'WEEKLY', '/D', 'MON,TUE,WED,THU,FRI', '/ST', '19:00') },
+    @{ Nome = 'B3 - Diario de sinais'; Script = 'diario-de-sinais.ps1'; Args = @('/SC', 'WEEKLY', '/D', 'MON,TUE,WED,THU,FRI', '/ST', '21:30') },
     @{ Nome = 'B3 - Cargas ETL'; Script = 'cargas-etl.ps1'; Args = @('/SC', 'WEEKLY', '/D', 'MON,TUE,WED,THU,FRI', '/ST', '20:00') },
     @{ Nome = 'B3 - Backup MySQL'; Script = 'backup-mysql.ps1'; Args = @('/SC', 'DAILY', '/ST', '12:30') }
 )

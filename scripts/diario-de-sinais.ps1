@@ -1,7 +1,7 @@
-# Diario de sinais (paper trading): registra o sinal do pregao e avalia os
-# horizontes que venceram. Feito para o Agendador de Tarefas do Windows, todo
-# dia util depois do fechamento da B3 (sugestao: 19h, com folga para o gestor
-# gravar o candle do dia).
+# Diario de sinais (paper trading): registra os pregoes novos do COTAHIST e
+# avalia os horizontes que venceram. Feito para o Agendador de Tarefas do
+# Windows, dias uteis as 21h30 - depois das cargas das 20h, que trazem o preco
+# oficial e geram os insights diarios da camada Base.
 #
 # Ativar (uma vez, num PowerShell comum):
 #   schtasks /Create /TN "B3 - Diario de sinais" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 19:00 `
