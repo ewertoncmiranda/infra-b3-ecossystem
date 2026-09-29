@@ -3,6 +3,7 @@ services:
   localstack:
     image: localstack/localstack:3.3
     container_name: localstack
+    restart: unless-stopped
     environment:
       SERVICES: sqs,s3,sns
       EDGE_PORT: 4566
@@ -21,7 +22,8 @@ services:
       retries: 30
 
   my-terraform-provisioner:
-    image: ewertonmiranda/infra-b3-ecossystem:latest
+    build:
+      context: ./infra
     container_name: my-terraform-provisioner
     working_dir: /infra
     environment:
@@ -40,6 +42,7 @@ services:
   mysql:
     image: mysql:8.0
     container_name: mysql
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: minha_base
@@ -50,7 +53,6 @@ services:
     command: --default-authentication-plugin=mysql_native_password
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./mysql-init:/docker-entrypoint-initdb.d
     networks:
       - observability
     healthcheck:
@@ -170,12 +172,13 @@ services:
   etl-fundamentos-cvm:
     image: ewertonmiranda/etl-fundamentos-cvm:latest
     container_name: etl-fundamentos-cvm
-    # Job, nao servico: o `up` cria o container, roda a rotina uma vez e ele
-    # para (restart "no"). Depois, o "play" do Docker Desktop roda de novo a
-    # mesma rotina - sem argumento nem variavel. Sem novidade na CVM/B3, cada
-    # carga custa so um HEAD (ETag). Cargas avulsas continuam possiveis:
-    #   docker compose -f <arquivo> run --rm --no-deps etl-fundamentos-cvm --ano 2024 --forcar
-    command: ["--rotina"]
+    # Job, nao servico: fica de fora do `docker compose up` normal (profile
+    # "etl"). O unico orquestrador e a rotina da manha (scripts/cargas-etl.ps1,
+    # via Agendador de Tarefas), que chama `run` com os argumentos de cada
+    # etapa - por isso nenhum `command` fixo aqui. Cargas avulsas continuam
+    # possiveis:
+    #   docker compose -f <arquivo> --profile etl run --rm --no-deps etl-fundamentos-cvm --ano 2024 --forcar
+    profiles: ["etl"]
     restart: "no"
     depends_on:
       mysql:
@@ -251,6 +254,7 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
     container_name: elasticsearch
+    restart: unless-stopped
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -270,6 +274,7 @@ services:
   logstash:
     image: docker.elastic.co/logstash/logstash:8.14.0
     container_name: logstash
+    restart: unless-stopped
     volumes:
         - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
         - ./logs:/logs:ro
@@ -288,6 +293,7 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:8.14.0
     container_name: kibana
+    restart: unless-stopped
     ports:
       - "5601:5601"
     environment:
@@ -301,6 +307,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
+    restart: unless-stopped
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
@@ -315,6 +322,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:

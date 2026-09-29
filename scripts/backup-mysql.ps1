@@ -61,3 +61,13 @@ Get-ChildItem $pasta -Filter 'minha_base_*.sql.gz' | Sort-Object Name -Descendin
 $tamanho = [Math]::Round((Get-Item $arquivo).Length / 1MB, 1)
 Registrar-Execucao 'BACKUP_MYSQL' 'SUCESSO' ([int]$totalTabelas)
 Escrever-Log $log "ok: $arquivo ($tamanho MB, $totalTabelas tabelas restauradas e conferidas)"
+
+# Segunda passada do dia (12:30, PLANO-ATUALIZACAO-DIARIA.md secao 5/A5):
+# pega o que ainda nao tinha saido quando a rotina da manha rodou. Cada
+# carga compara o ETag antes de baixar - sem novidade, custa so um HEAD.
+Escrever-Log $log 'iniciando segunda passada do ETL'
+& (Join-Path $PSScriptRoot 'cargas-etl.ps1')
+if ($LASTEXITCODE -ne 0) {
+    Escrever-Log $log "segunda passada do ETL terminou com falhas (codigo $LASTEXITCODE) - ver cargas-etl.log"
+    exit 1
+}
