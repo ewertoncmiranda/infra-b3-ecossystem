@@ -98,39 +98,35 @@ function Garantir-Stack {
         return $false
     }
 
-    # --build: sem isso, um commit novo de gestor/gerar-insights/painel so
-    # entra em vigor com um rebuild manual - a rotina rodaria codigo velho
-    # depois de qualquer commit (achado pela Sessao 03, 2026-09-29: a rotina
+    # --pull always: os servicos proprios vem do Docker Hub (ewertonmiranda/*,
+    # tag develop, publicada pelo CI a cada push em develop). Sem o pull, a
+    # rotina seguiria com a imagem baixada da ultima vez e um merge novo so
+    # entraria com um pull manual (achado pela Sessao 03, 2026-09-29: a rotina
     # das 07:00 rodou sem --recuperar/--conciliar porque a imagem do
     # gerar-insights ainda era a de antes desses comandos existirem).
-    # Custa uns segundos a mais quando nao ha mudanca (cache do Docker).
-    Escrever-Log $log 'Docker Engine respondeu; subindo a stack (docker compose up -d --build)...'
-    $subida = Rodar-Compose @('up', '-d', '--build')
+    # Imagem sem mudanca custa so a consulta do digest.
+    Escrever-Log $log 'Docker Engine respondeu; subindo a stack (docker compose up -d --pull always)...'
+    $subida = Rodar-Compose @('up', '-d', '--pull', 'always')
     if ($subida.Codigo -ne 0) {
-        # docker compose up --build roda o build ANTES de tocar em qualquer
-        # container: se o build falhar, o container antigo (imagem anterior)
-        # continua no ar, intocado - so nao sabemos ainda se subiu por outro
-        # motivo. Por isso o fallback aqui e so tentar `up -d` sem --build:
-        # se isso funcionar, a stack esta de pe com a imagem anterior (algum
-        # commit sem codigo quebrado) e a rotina segue, so avisada; se falhar
-        # tambem, ai sim e erro de verdade (achado da Sessao 03, 2026-09-29:
-        # working tree com codigo quebrado sem commit nao pode travar o dia
-        # inteiro).
-        $motivoBuild = "docker compose up -d --build saiu com codigo $($subida.Codigo)"
-        Escrever-Log $log "AVISO: $motivoBuild - tentando subir com a imagem anterior (sem --build)"
+        # O pull roda ANTES de tocar em qualquer container: se falhar (sem
+        # internet, Docker Hub fora, limite de pull), os containers atuais
+        # continuam no ar. O fallback sobe com as imagens que ja estao na
+        # maquina; se isso falhar tambem, ai sim e erro de verdade.
+        $motivoPull = "docker compose up -d --pull always saiu com codigo $($subida.Codigo)"
+        Escrever-Log $log "AVISO: $motivoPull - tentando subir com as imagens locais (--pull never)"
         $subida.Saida | ForEach-Object { Escrever-Log $log "  $_" }
 
-        $subidaSemBuild = Rodar-Compose @('up', '-d')
-        if ($subidaSemBuild.Codigo -ne 0) {
-            $motivo = "$motivoBuild; fallback sem --build tambem falhou (codigo $($subidaSemBuild.Codigo))"
+        $subidaLocal = Rodar-Compose @('up', '-d', '--pull', 'never')
+        if ($subidaLocal.Codigo -ne 0) {
+            $motivo = "$motivoPull; fallback com imagens locais tambem falhou (codigo $($subidaLocal.Codigo))"
             Escrever-Log $log "FALHOU: $motivo"
-            $subidaSemBuild.Saida | ForEach-Object { Escrever-Log $log "  $_" }
+            $subidaLocal.Saida | ForEach-Object { Escrever-Log $log "  $_" }
             Registrar-Execucao 'GARANTIR_STACK' 'ERRO' 0 $motivo
             if (-not (Enviar-Alerta "garantir stack falhou: $motivo")) { Escrever-Log $log 'alerta nao enviado (Telegram nao configurado)' }
             return $false
         }
-        Escrever-Log $log 'ok: stack subiu com a imagem anterior (build falhou - ver acima; provavel codigo sem commit quebrado)'
-        if (-not (Enviar-Alerta "build falhou na rotina da manha, seguindo com a imagem anterior: $motivoBuild")) {
+        Escrever-Log $log 'ok: stack subiu com as imagens locais (pull falhou - ver acima; provavel falta de internet)'
+        if (-not (Enviar-Alerta "pull do Docker Hub falhou na rotina da manha, seguindo com as imagens locais: $motivoPull")) {
             Escrever-Log $log 'alerta nao enviado (Telegram nao configurado)'
         }
     }
