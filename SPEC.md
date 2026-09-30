@@ -299,3 +299,288 @@ docker exec -it mysql mysql -uspring -pspring123 minha_base \
 # observabilidade
 # Prometheus: http://localhost:9090/targets · Grafana: http://localhost:3000 · Kibana: http://localhost:5601
 ```
+
+## Plano LAC: 9 lacunas de assertividade (proposta de 30-09-2026, EM AVALIAÇÃO)
+
+**Objetivo.** O backtest da regra atual (execução 14) não mostra vantagem no período de teste: todo intervalo de confiança de acerto contém a taxa-base. Antes de trocar a regra, a base de dados precisa ficar justa (proventos, desdobramentos, lucro trimestral, mais anos) e a avaliação precisa ter poder estatístico (ranking entre ações). Este plano cobre as 9 lacunas com **uma única migração (V16)** e só com **COTAHIST e CVM** como fonte.
+
+### Fontes: só COTAHIST e CVM (verificado em 30-09-2026)
+
+| # | Lacuna | Fonte | Situação hoje | Limite honesto |
+|---|---|---|---|---|
+| L1 | Histórico de proventos | CVM DFP/ITR, demonstração **DVA** (7.08.04.01 JCP, 7.08.04.02 Dividendos) + **marcas ex do COTAHIST** (ED, EJ, EDJ…) | Já no cache (`dfp_cia_aberta_DVA_*`); ETL não lê nenhum dos dois | Valor **por período** (DVA); a data ex vem do COTAHIST (481 EJ e 253 ED no BDI 02 em 2026). O valor de cada evento é o total do trimestre repartido entre as datas ex dele: aproximação |
+| L2 | Desdobramentos e grupamentos | **Marca ex no ESPECI do COTAHIST** (EB, EG, EX…) para a data + composição de capital (DFP/ITR) para a proporção | Dados já existem; o leitor ignora o ESPECI | A data vem do COTAHIST, sem heurística (achado da Sessão 01, conferido em 30-09-2026: 22 EB e 24 EG no BDI 02 em 2026). A proporção ainda é calculada; o significado exato de cada marca deve ser conferido no layout oficial da B3 |
+| L3 | Balanço trimestral histórico | CVM ITR desde 2011 | Cache tem 2024–2026 | Precisa baixar 2011–2023 (mesmo pipeline) |
+| L4 | Mais anos | COTAHIST desde 2009; CVM DFP desde 2010 | Cache tem 2016+ | CVM aberta começa em 2010: sinais só a partir de 2011 |
+| L5 | Fatores de preço | COTAHIST | Pronto | — |
+| L6 | Qualidade e endividamento | CVM DFP/ITR (BPA, BPP, DRE, DFC) | Parcial | Faltam 4 contas no ETL (ativo total, ativo e passivo circulante, lucro bruto) |
+| L7 | Comparação no setor | CVM FCA (`cvm_empresa.setor`, 41 setores) | Pronto | 15 empresas sem setor; agrupamento precisa de revisão humana |
+| L8 | Eventos de comunicados | CVM IPE (`comunicado_cvm`, 4.139) | Pronto | Só metadados (categoria, datas), não o texto; 36 datas de referência inválidas: usar `data_entrega` |
+| L9 | Fatores de referência | **Construídos** com COTAHIST + CVM (MKT, SMB, HML, WML, IML, QMJ) | — | Substitui o NEFIN/USP (fonte externa). Menos auditado que o NEFIN |
+
+Nenhuma lacuna exige fonte paga ou fora de COTAHIST/CVM.
+
+### Modelo relacional
+
+```
+cvm_empresa (cnpj) ──< fato_contabil (+coluna_df)          [L1 DVA/DMPL, L3, L4, L6]
+      │          ──< provento_contabil                       [L1: JCP+dividendos por período]
+      │          ──< cvm_composicao_capital ─┐
+      │          ──< comunicado_cvm (+índice)│               [L8]
+      │                                      ▼
+      └─ setor ── setor_grupo           evento_corporativo   [L2: inferido de capital × preço]
+                   (grupo, regra)             │
+cotacao_b3_diaria (simbolo, data) ────────────┘ ajuste de preço na leitura
+      │
+      ├──> fator_valor (simbolo, data_ref, fator) >── fator_definicao   [L5, L6, L7, L8]
+      └──> fator_mercado_mensal (data_ref, fator)                       [L9]
+
+backtest_execucao (+metodo, esquema, hipotese, tentativa)
+      ├──< backtest_placar            (método CLASSES, já existe)
+      └──< backtest_ranking_mes ──< backtest_ranking_quintil  (método RANKING)
+```
+
+Decisões do modelo:
+- **Formato longo para fatores** (`fator_valor` + `fator_definicao`): fator novo é uma linha no catálogo, não uma migração. É o que mantém a V16 como migração única.
+- **Dado bruto num lugar só:** DVA e DMPL entram no `fato_contabil`, que já guarda BPA/BPP/DRE/DFC. `provento_contabil` e `evento_corporativo` são derivados e reprocessáveis.
+- **Ponto no tempo em toda tabela nova:** `data_entrega` (DT_RECEB da CVM) em proventos; fatores calculados no primeiro pregão do mês só com o que era público até ali.
+- **Ajuste de desdobramento na leitura**, não gravando uma cópia ajustada do COTAHIST: o preço bruto oficial continua intacto e auditável.
+
+### Migração única V16 (validada em banco temporário em 30-09-2026)
+
+Rodada contra cópias vazias das tabelas alteradas: sem erro; 41 setores e 16 fatores semeados; colunas geradas conferidas (desdobramento 2:1 → `fator_preco` 0,5; WEG 2024: JCP + dividendos = R$ 3,19 bi).
+
+```sql
+-- V16__lacunas_assertividade.sql
+-- L1 e L6: DVA e DMPL no fato_contabil (DMPL tem a coluna do patrimonio).
+ALTER TABLE fato_contabil
+    ADD COLUMN coluna_df VARCHAR(60) NOT NULL DEFAULT '' AFTER cd_conta,
+    DROP INDEX uq_fato_contabil,
+    ADD UNIQUE KEY uq_fato_contabil
+        (cnpj, tipo_doc, grupo, demonstracao, dt_fim_exerc, dt_ini_exerc, cd_conta, coluna_df);
+
+-- L1: proventos por periodo (DVA). DFP = ano; ITR = trimestre isolado.
+CREATE TABLE provento_contabil (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    cnpj                VARCHAR(20)       NOT NULL,
+    tipo_doc            VARCHAR(5)        NOT NULL,
+    dt_ini_exerc        DATE              NOT NULL,
+    dt_fim_exerc        DATE              NOT NULL,
+    versao              SMALLINT UNSIGNED NOT NULL,
+    data_entrega        DATE              NULL,
+    jcp                 DECIMAL(24,2)     NULL,
+    dividendos          DECIMAL(24,2)     NULL,
+    total               DECIMAL(24,2) GENERATED ALWAYS AS (COALESCE(jcp, 0) + COALESCE(dividendos, 0)) STORED,
+    acoes_ex_tesouraria BIGINT            NULL,
+    por_acao            DECIMAL(18,8)     NULL,
+    origem              VARCHAR(20)       NOT NULL DEFAULT 'CVM_DVA',
+    cobertura_json      JSON              NULL,
+    criado_em           DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em       DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_provento_contabil (cnpj, tipo_doc, dt_fim_exerc),
+    KEY idx_provento_contabil_entrega (cnpj, data_entrega),
+    CONSTRAINT chk_provento_contabil_tipo_doc CHECK (tipo_doc IN ('DFP', 'ITR'))
+);
+
+-- L2: desdobramento, grupamento e bonificacao (inferidos).
+CREATE TABLE evento_corporativo (
+    id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    simbolo        VARCHAR(12)    NOT NULL,
+    cnpj           VARCHAR(20)    NULL,
+    data_efeito    DATE           NOT NULL,
+    tipo           VARCHAR(20)    NOT NULL,
+    fator_acoes    DECIMAL(20,10) NOT NULL,
+    fator_preco    DECIMAL(20,10) GENERATED ALWAYS AS (1 / fator_acoes) STORED,
+    origem         VARCHAR(30)    NOT NULL,
+    confianca      DECIMAL(5,4)   NULL,
+    evidencia_json JSON           NULL,
+    criado_em      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em  DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_evento_corporativo (simbolo, data_efeito, tipo),
+    KEY idx_evento_corporativo_cnpj (cnpj, data_efeito),
+    CONSTRAINT chk_evento_corporativo_tipo CHECK (tipo IN ('DESDOBRAMENTO', 'GRUPAMENTO', 'BONIFICACAO')),
+    CONSTRAINT chk_evento_corporativo_fator CHECK (fator_acoes > 0),
+    CONSTRAINT chk_evento_corporativo_origem CHECK (origem IN ('INFERIDO_CVM_COTAHIST', 'MANUAL'))
+);
+
+-- L3/L4: sem tabela nova (fato_contabil, indicador_fundamentalista,
+-- cvm_composicao_capital e cotacao_b3_diaria so crescem).
+
+-- L6: contas para qualidade (liquidez, margem bruta, Piotroski).
+ALTER TABLE indicador_fundamentalista
+    ADD COLUMN ativo_total        DECIMAL(24,2) NULL AFTER patrimonio_liquido,
+    ADD COLUMN ativo_circulante   DECIMAL(24,2) NULL AFTER ativo_total,
+    ADD COLUMN passivo_circulante DECIMAL(24,2) NULL AFTER ativo_circulante,
+    ADD COLUMN lucro_bruto        DECIMAL(24,2) NULL AFTER receita_liquida;
+
+-- L7: agrupamento de setores e regra de valuation por grupo.
+CREATE TABLE setor_grupo (
+    setor_cvm       VARCHAR(60) PRIMARY KEY,
+    grupo_setor     VARCHAR(40) NOT NULL,
+    regra_valuation VARCHAR(20) NOT NULL DEFAULT 'GRAHAM',
+    observacao      VARCHAR(300) NULL,
+    CONSTRAINT chk_setor_grupo_regra CHECK (regra_valuation IN ('GRAHAM', 'PL_SETOR', 'PVP_SETOR', 'DIVIDENDOS'))
+);
+INSERT INTO setor_grupo (setor_cvm, grupo_setor)
+SELECT DISTINCT setor, 'A_CLASSIFICAR' FROM cvm_empresa WHERE setor IS NOT NULL;
+
+-- L5, L6, L8: fatores em formato longo.
+CREATE TABLE fator_definicao (
+    codigo            VARCHAR(40)  PRIMARY KEY,
+    familia           VARCHAR(20)  NOT NULL,
+    descricao         VARCHAR(300) NOT NULL,
+    fonte             VARCHAR(20)  NOT NULL,
+    direcao_esperada  TINYINT      NOT NULL,
+    defasagem_pregoes SMALLINT     NOT NULL DEFAULT 0,
+    versao_calculo    VARCHAR(20)  NOT NULL,
+    ativo             BOOLEAN      NOT NULL DEFAULT TRUE,
+    CONSTRAINT chk_fator_definicao_familia CHECK (familia IN ('PRECO', 'QUALIDADE', 'VALOR', 'EVENTO')),
+    CONSTRAINT chk_fator_definicao_fonte CHECK (fonte IN ('COTAHIST', 'CVM_DFP_ITR', 'CVM_IPE', 'COTAHIST_CVM')),
+    CONSTRAINT chk_fator_definicao_direcao CHECK (direcao_esperada IN (-1, 0, 1))
+);
+
+CREATE TABLE fator_valor (
+    simbolo            VARCHAR(12)    NOT NULL,
+    data_referencia    DATE           NOT NULL,
+    fator_codigo       VARCHAR(40)    NOT NULL,
+    valor              DECIMAL(24,10) NULL,
+    percentil_universo DECIMAL(7,4)   NULL,
+    percentil_setor    DECIMAL(7,4)   NULL,
+    grupo_setor        VARCHAR(40)    NULL,
+    calculado_em       DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (simbolo, data_referencia, fator_codigo),
+    KEY idx_fator_valor_data (data_referencia, fator_codigo),
+    CONSTRAINT fk_fator_valor_definicao FOREIGN KEY (fator_codigo) REFERENCES fator_definicao (codigo)
+);
+
+INSERT INTO fator_definicao (codigo, familia, descricao, fonte, direcao_esperada, defasagem_pregoes, versao_calculo) VALUES
+    ('MOMENTO_12_1',          'PRECO',     'Retorno de 12 meses excluindo o ultimo mes', 'COTAHIST', 1, 21, '1'),
+    ('VOLATILIDADE_12M',      'PRECO',     'Desvio-padrao anualizado dos retornos diarios em 12 meses', 'COTAHIST', -1, 0, '1'),
+    ('LIQUIDEZ_63D',          'PRECO',     'Volume financeiro medio diario em 63 pregoes', 'COTAHIST', 1, 0, '1'),
+    ('BETA_12M',              'PRECO',     'Beta contra a media do universo em 12 meses', 'COTAHIST', -1, 0, '1'),
+    ('DRAWDOWN_12M',          'PRECO',     'Queda do pico em 12 meses', 'COTAHIST', 1, 0, '1'),
+    ('ROIC',                  'QUALIDADE', 'EBIT sobre capital investido (PL + divida liquida)', 'CVM_DFP_ITR', 1, 0, '1'),
+    ('ALAVANCAGEM',           'QUALIDADE', 'Divida liquida sobre patrimonio liquido', 'CVM_DFP_ITR', -1, 0, '1'),
+    ('MARGEM_BRUTA',          'QUALIDADE', 'Lucro bruto sobre receita liquida', 'CVM_DFP_ITR', 1, 0, '1'),
+    ('ACCRUALS',              'QUALIDADE', '(Lucro liquido - fluxo de caixa operacional) sobre ativo total', 'CVM_DFP_ITR', -1, 0, '1'),
+    ('PIOTROSKI',             'QUALIDADE', 'Escore F de Piotroski (0 a 9)', 'CVM_DFP_ITR', 1, 0, '1'),
+    ('CRESCIMENTO_LPA',       'QUALIDADE', 'Variacao do LPA dos ultimos 12 meses contra 12 meses antes', 'CVM_DFP_ITR', 1, 0, '1'),
+    ('EARNINGS_YIELD',        'VALOR',     'LPA dos ultimos 12 meses sobre preco', 'COTAHIST_CVM', 1, 0, '1'),
+    ('BOOK_TO_MARKET',        'VALOR',     'VPA sobre preco', 'COTAHIST_CVM', 1, 0, '1'),
+    ('DIVIDEND_YIELD',        'VALOR',     'Proventos por acao em 12 meses (DVA) sobre preco', 'COTAHIST_CVM', 1, 0, '1'),
+    ('FATOS_RELEVANTES_90D',  'EVENTO',    'Fatos relevantes entregues nos ultimos 90 dias', 'CVM_IPE', 0, 0, '1'),
+    ('AVISOS_PROVENTOS_180D', 'EVENTO',    'Avisos de proventos entregues nos ultimos 180 dias', 'CVM_IPE', 1, 0, '1');
+
+-- L8: contagem de comunicados por empresa e janela de entrega.
+ALTER TABLE comunicado_cvm
+    ADD KEY idx_comunicado_evento (cnpj, categoria, data_entrega);
+
+-- L9: fatores de referencia construidos (no lugar do NEFIN).
+CREATE TABLE fator_mercado_mensal (
+    data_referencia DATE          NOT NULL,
+    fator_codigo    VARCHAR(10)   NOT NULL,
+    versao_calculo  VARCHAR(20)   NOT NULL,
+    retorno         DECIMAL(14,8) NOT NULL,
+    n_ativos_long   INT           NULL,
+    n_ativos_short  INT           NULL,
+    calculado_em    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (data_referencia, fator_codigo, versao_calculo),
+    CONSTRAINT chk_fator_mercado_codigo CHECK (fator_codigo IN ('MKT', 'SMB', 'HML', 'WML', 'IML', 'QMJ'))
+);
+
+-- Metodo: ranking, janelas sucessivas e registro de tentativas.
+ALTER TABLE backtest_execucao
+    ADD COLUMN metodo            VARCHAR(20) NOT NULL DEFAULT 'CLASSES' AFTER status,
+    ADD COLUMN esquema_validacao VARCHAR(20) NOT NULL DEFAULT 'CORTE_UNICO' AFTER metodo,
+    ADD COLUMN hipotese          TEXT        NULL AFTER esquema_validacao,
+    ADD COLUMN numero_tentativa  INT         NULL AFTER hipotese,
+    ADD CONSTRAINT chk_backtest_execucao_metodo CHECK (metodo IN ('CLASSES', 'RANKING')),
+    ADD CONSTRAINT chk_backtest_execucao_esquema CHECK (esquema_validacao IN ('CORTE_UNICO', 'JANELAS_SUCESSIVAS'));
+
+CREATE TABLE backtest_ranking_mes (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    execucao_id     BIGINT       NOT NULL,
+    versao_regra    VARCHAR(20)  NOT NULL,
+    janela          VARCHAR(20)  NOT NULL,
+    data_referencia DATE         NOT NULL,
+    horizonte       SMALLINT     NOT NULL,
+    ic_spearman     DECIMAL(8,6) NULL,
+    n_ativos        INT          NOT NULL,
+    UNIQUE KEY uq_backtest_ranking_mes (execucao_id, versao_regra, janela, data_referencia, horizonte),
+    CONSTRAINT fk_backtest_ranking_mes_execucao FOREIGN KEY (execucao_id) REFERENCES backtest_execucao (id) ON DELETE CASCADE
+);
+
+CREATE TABLE backtest_ranking_quintil (
+    ranking_mes_id BIGINT        NOT NULL,
+    quintil        TINYINT       NOT NULL,
+    retorno_medio  DECIMAL(12,6) NULL,
+    n_ativos       INT           NOT NULL,
+    PRIMARY KEY (ranking_mes_id, quintil),
+    CONSTRAINT fk_backtest_ranking_quintil_mes FOREIGN KEY (ranking_mes_id) REFERENCES backtest_ranking_mes (id) ON DELETE CASCADE,
+    CONSTRAINT chk_backtest_ranking_quintil CHECK (quintil BETWEEN 1 AND 5)
+);
+
+-- L1, L2 e L5: campos do COTAHIST que o leitor ignora hoje (achados da
+-- Sessao 01, conferidos em 30-09-2026). marca_ex = sufixo do ESPECI no dia
+-- ex (EJ, ED, EB, EG, ES...); fator_cotacao = FATCOT (AZUL53 1.000.000,
+-- GOLL54 1.000: preco gravado hoje multiplicado); preco_medio = PREMED
+-- (VWAP); melhores ofertas no fechamento = PREOFC/PREOFV (spread real).
+ALTER TABLE cotacao_b3_diaria
+    ADD COLUMN especificacao        VARCHAR(10)   NULL AFTER simbolo,
+    ADD COLUMN marca_ex             VARCHAR(4)    NULL AFTER especificacao,
+    ADD COLUMN fator_cotacao        INT           NOT NULL DEFAULT 1 AFTER marca_ex,
+    ADD COLUMN preco_medio          DECIMAL(14,4) NULL AFTER fechamento,
+    ADD COLUMN melhor_oferta_compra DECIMAL(14,4) NULL AFTER preco_medio,
+    ADD COLUMN melhor_oferta_venda  DECIMAL(14,4) NULL AFTER melhor_oferta_compra,
+    ADD KEY idx_cotacao_b3_marca_ex (marca_ex, data_pregao);
+```
+
+Este último bloco também foi validado em banco temporário (30-09-2026). Os ~1,16 mi de linhas atuais ficam com as colunas novas nulas até a recarga do COTAHIST, que já está prevista no backfill.
+
+### Carga histórica (uma vez, fora da rotina diária)
+
+| Carga | Volume estimado | Comando |
+|---|---|---|
+| COTAHIST 2009–2015 | ~1,3 mi linhas em `cotacao_b3_diaria`, ~90 MB por ano de download | `etl --cotahist --ano 2009 ... --ano 2015` |
+| DFP 2010–2015 (com DVA, DMPL, composição) | ~0,4 mi linhas em `fato_contabil` | `etl --ano 2010 ... --ano 2015 --universo-backtest` |
+| ITR 2011–2023 | ~2 mi linhas em `fato_contabil` | `etl --ttm --ano 2011 ... --ano 2023` e a nova carga trimestral (ETL, LAC-ETL-3) |
+| Reprocessar DFP/ITR 2016–2026 com DVA e DMPL | reaproveita o cache (sem download) | `etl --ano ... --forcar` |
+| Reprocessar COTAHIST 2016–2026 com ESPECI, FATCOT, PREMED e ofertas | reaproveita o cache (sem download) | `etl --cotahist --ano ... --forcar` |
+
+Volume final estimado do banco: de ~1,7 GB para ~3,5 GB. O backup diário cresce na mesma proporção.
+
+### Tarefas desta aplicação
+
+| ID | Tarefa | Depende de |
+|---|---|---|
+| LAC-INFRA-1 | Criar `mysql-migrations/V16__lacunas_assertividade.sql` com o DDL acima; `flyway validate` limpo | Aprovação deste plano |
+| LAC-INFRA-2 | Revisar o agrupamento dos 41 setores (`setor_grupo`) e a regra de valuation de cada grupo; o resultado entra na própria V16, no lugar de `A_CLASSIFICAR` | LAC-INFRA-1 |
+| LAC-INFRA-3 | Script `scripts/backfill-historico.ps1`, idempotente, com a ordem da tabela acima e registro em `etl_execucao` | LAC-ETL-1..3 |
+| LAC-INFRA-4 | Rotina da manhã: etapa mensal (1º dia útil) de cálculo de fatores e de fatores de mercado, depois do COTAHIST | LAC-INS-5..8 |
+| LAC-INFRA-5 | Revisar o tamanho do backup e a retenção (de ~45 MB para ~90 MB por dia) | LAC-INFRA-3 |
+
+### Divisão entre aplicações
+
+| Aplicação | Lacunas | Seção |
+|---|---|---|
+| infra-b3-ecossytem | V16, backfill, rotina | esta |
+| etl-fundamentos-cvm | L1, L2, L3, L4, L6 (contas), L8 (datas) | `etl-fundamentos-cvm/SPEC.md`, Plano LAC |
+| gerar-insights | L1/L2 no retorno, L5, L6, L7, L8, L9, método de ranking | `gerar-insights/SPEC.md`, Plano LAC |
+| gestor-ativos-brutos | Leitura do novo placar e dos fatores | `gestor-ativos-brutos/SPEC.md`, Plano LAC |
+| painel-ativos-frontend | Exibição do placar por ranking e dos fatores na ficha | `painel-ativos-frontend/SPEC.md`, Plano LAC |
+
+### Aceite do plano inteiro
+
+1. Backtest refeito com proventos (DVA) e desdobramentos ajustados, de 2011 a 2026, com o **método de ranking em janelas sucessivas**.
+2. Cada fator novo aparece no placar como versão de regra própria, com `hipotese` registrada **antes** da execução e `numero_tentativa` preenchido.
+3. Uma regra só é promovida se o intervalo de 95% da correlação de ranking (ou da diferença entre quintis) ficar acima de zero nas janelas de teste **e** o diário ao vivo não contradisser.
+
+### Riscos
+
+| Risco | Mitigação |
+|---|---|
+| Proventos da DVA por período, não por evento | Tratar como fluxo trimestral a partir de `data_entrega`; medir o efeito comparando com os 12 meses de `provento_distribuido` (evento) já existentes |
+| Desdobramento com proporção errada | A data vem da marca ex do COTAHIST; a proporção da composição de capital precisa bater com o salto de preço. `confianca` e `evidencia_json` por evento; abaixo do limiar, fica fora do ajuste e a janela é descartada como hoje |
+| Significado de marca do ESPECI assumido errado | Conferir o layout oficial do COTAHIST da B3 antes de codificar; conjunto de eventos conhecidos como teste |
+| Mais testes, mais chance de achar sorte | `hipotese` e `numero_tentativa` obrigatórios; exigência maior para a melhor de N tentativas; diário ao vivo como juiz final |
+| V16 altera a chave única de `fato_contabil` (~0,5 mi linhas) | Rodar com a stack parada; backup antes; tempo estimado de 1–2 min |
