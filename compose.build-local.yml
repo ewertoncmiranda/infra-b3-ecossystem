@@ -1,0 +1,31 @@
+# Sobreposicao opcional: constroi os servicos proprios a partir do codigo dos
+# repositorios irmaos (C:\Users\User\projetos\...) em vez de usar a imagem do
+# Docker Hub. Serve para testar uma branch feature-* antes de ela chegar em
+# develop (so develop publica imagem no Docker Hub).
+#
+#   docker compose -f docker-compose-local.yml -f compose.build-local.yml up -d --build gestor-ativos-brutos
+#
+# A imagem construida recebe o mesmo nome da do Docker Hub; o proximo
+# `up --pull always` da rotina da manha a substitui de novo pela publicada.
+services:
+  my-terraform-provisioner:
+    build:
+      context: ./infra
+
+  gestor-ativos-brutos:
+    build:
+      context: ../gestor-ativos-brutos/gestor-ativos-brutos
+      dockerfile: Dockerfile
+
+  gerar-insights:
+    build:
+      context: ../gerar-insights/gerar-insights
+
+  etl-fundamentos-cvm:
+    build:
+      context: ../etl-fundamentos-cvm
+
+  painel-ativos-frontend:
+    build:
+      context: ../painel-ativos-frontend
+      dockerfile: Dockerfile

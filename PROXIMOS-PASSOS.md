@@ -29,9 +29,13 @@ Repare que dois repositórios têm o código numa pasta aninhada de mesmo nome.
 
 ```bash
 cd C:\Users\User\projetos\infra-b3-ecossytem
-docker compose -f docker-compose-local.yml up -d          # faz build do código local
+docker compose -f docker-compose-local.yml up -d --pull always   # imagens do Docker Hub (tag develop)
 docker compose -f docker-compose-local.yml --profile etl run --rm etl-fundamentos-cvm
+# codigo local de uma branch feature-* (antes do merge em develop):
+docker compose -f docker-compose-local.yml -f compose.build-local.yml up -d --build gestor-ativos-brutos
 ```
+
+`B3_IMAGEM_TAG` troca a tag (ex.: `develop-c1b31b9` para fixar uma versão).
 
 O front fica em `http://localhost:8082`, a API em `:8091`, o MySQL em `:3305`.
 
