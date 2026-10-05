@@ -3,15 +3,17 @@
 | Campo | Valor |
 |---|---|
 | Versão da spec | 1.0.0 |
-| Data | 2026-09-25 |
-| Status | Ativa — baseline do estado atual + backlog planejado |
-| Branch analisada | `feature-nova-infra` (último commit `81e3fa9`) |
-| Alterações não commitadas | `docker-compose.yml`, `infra/*.tf`, `infra/sns/` (novo), `docker-compose-local.yml` (novo, **contém segredos**), `OBSERVABILITY_GUIDE.md` |
+| Data | 2026-09-27 |
+| Status | IMPLEMENTADO |
 | Escopo | Este repositório **e** a integração entre `gestor-ativos-brutos` (Java) e `gerar-insights` (Python) |
 | Specs dos serviços | `gestor-ativos-brutos/SPEC.md` · `gerar-insights/SPEC.md` |
 | Público | Desenvolvedores humanos e agentes de IA (Codex, ChatGPT, Claude ou outros) |
 
 ---
+
+## Corte e estados comuns
+
+Data de corte: **2026-09-27** (America/Sao_Paulo). `PLANEJADO`: ainda não executado; `EM ANDAMENTO`: entrega parcial; `IMPLEMENTADO`: código ou decisão presente, sem confirmação integral nesta revisão; `VERIFICADO`: aceite demonstrado por verificação registrada; `BLOQUEADO`: dependência impeditiva identificada. Datas anteriores permanecem como histórico. Resolver um problema significa implementar sua correção; funcionalidades descontinuadas mantêm o ID e registram a resolução. Evidências antigas não são nova validação operacional.
 
 ## 1. Como usar este arquivo (protocolo para agentes)
 
@@ -24,7 +26,7 @@ Regras:
 1. Fluxo SDD: `Spec → Plano → Tarefas → Implementação → Verificação → Atualizar Spec`.
 2. Uma mudança de contrato (`CTR-`) só pode ser implementada depois que esta spec estiver atualizada, e precisa de uma tarefa correspondente **em cada** repositório afetado.
 3. Para referenciar IDs de outras specs, use o prefixo do repositório: `gerar-insights#ISS-01`, `gestor#ISS-02`, `infra#ISS-03`.
-4. IDs são estáveis; para descontinuar, use o status `DESCARTADO` com justificativa. Decisões viram `DEC-`.
+4. IDs são estáveis; para descontinuar, use o status `IMPLEMENTADO (descontinuado)` com justificativa. Decisões viram `DEC-`.
 5. Nunca coloque segredos em arquivos de compose, tfvars ou properties versionados.
 6. **Trabalho em paralelo (várias sessões/agentes ao mesmo tempo — `TASK-43`).** Em 2026-09-27 duas sessões editaram os mesmos arquivos e uma commitou o trabalho em andamento da outra. Para não repetir:
    - **Um dono por área de cada vez.** Antes de editar, rode `git status` no repositório: alteração não commitada que não é sua é de outra sessão — não edite esses arquivos nem os inclua em commit. Na dúvida, pergunte.
@@ -38,34 +40,97 @@ Regras:
 
 > Continuando o trabalho? Leia [`PROXIMOS-PASSOS.md`](PROXIMOS-PASSOS.md) primeiro: ele tem o estado atual, a proxima tarefa detalhada e as decisoes que nao devem ser desfeitas sem discussao.
 
+## 1A. Central de coordenação entre agentes (HUB)
+
+**Este arquivo é o ponto de comunicação entre agentes de IA distintos.** Os `SPEC.md` dos outros 4 repositórios têm um bloco "Coordenação" que aponta para cá e traz só a fatia local da fila. Em conflito entre seções antigas deste arquivo e esta seção 1A, **vale a 1A** (estado em 2026-10-04); as seções 2–9 são histórico detalhado e serão podadas conforme as tarefas fecharem.
+
+### 1A.1 Como um agente entra e sai (handoff)
+
+1. **Entrar:** leia a 1A inteira → `git status` do repositório → leia o `SPEC.md` do repositório que vai tocar. Alteração não commitada que não é sua pertence a outro agente: não edite nem commite.
+2. **Pegar tarefa:** na fila (1A.4), troque o estado para `EM ANDAMENTO (<agente>/<branch>, <data>)` **e faça commit só dessa linha** antes de codar. Marca de outro agente = tarefa ocupada.
+3. **Contrato novo ou alterado (`CTR-`):** atualize 1A.5 e a tarefa correspondente em cada repositório afetado antes de implementar.
+4. **Sair:** commit + push só dos seus arquivos (`git add <arquivo>`, nunca `-A`); mude o estado na fila para `IMPLEMENTADO` (ou `VERIFICADO` se houver evidência: comando + resultado); acrescente uma linha no diário (1A.7) com o que ficou pendente e qualquer comando que o próximo agente precise rodar.
+5. **Bloqueio:** estado `BLOQUEADO (motivo, quem desbloqueia)`; nunca deixe tarefa `EM ANDAMENTO` sem agente ativo — o diário é a prova de vida (marca sem entrada há mais de 2 dias pode ser reassumida avisando no diário).
+6. PRs abrem sozinhos a partir de `feature-*`; não abrir PR manual. Commit só em `feature-*` (crie a partir de `main` se preciso).
+
+### 1A.2 Repositórios, dono e estado (2026-10-04)
+
+| Repo | Stack | Branch ativa | Dono dos arquivos | Spec |
+|---|---|---|---|---|
+| `infra-b3-ecossytem` | Compose, Terraform/LocalStack, Flyway, scripts PowerShell | `feature-nova-infra` | schema (`mysql-migrations/`), `contracts/`, `scripts/`, compose | este arquivo |
+| `gestor-ativos-brutos` | Java 21 / Spring Boot 3.3 | `feature-teste` | API HTTP, coleta BRAPI, scheduler, leitura de `insight_acao` | `gestor-ativos-brutos/gestor-ativos-brutos/SPEC.md` |
+| `gerar-insights` | Python (worker + CLIs de validação) | `feature-migrate` | `insight_acao`, diário, backtest, fatores LAC | `gerar-insights/gerar-insights/SPEC.md` |
+| `etl-fundamentos-cvm` | Python hexagonal | `feature-comunicados-cvm` | fundamentos, TTM, comunicados, COTAHIST, DVA, conciliação | `etl-fundamentos-cvm/SPEC.md` |
+| `painel-ativos-frontend` | Node/Express + Web Components | `feature-comunicados-cvm` | UI; só consome HTTP do gestor | `painel-ativos-frontend/SPEC.md` |
+
+Regra de propriedade de dados: **só o Flyway cria/altera tabelas** (`ddl-auto=validate`; migration aplicada nunca é editada — corrigir com nova versão). Cada tabela tem um escritor; os demais só leem.
+
+### 1A.3 Estado atual do sistema (verdade de 2026-10-04; supera seções antigas)
+
+- **Migrations:** V1 baseline … V16 aplicadas no MySQL local (V11 foi renomeada V14; histórico reparado). Lista: V1 baseline, V2 deduplicação, V3 comunicados CVM, V4 diário de sinais, V5 diário/benchmark, V6 identidade+ponto-no-tempo+backtest, V7 tabelas JPA do gestor, V8 provento distribuído, V9 placar IC, V10 janelas com provento, V12 IC bootstrap, V13 monitoramento em camadas, V14 inbox de eventos, V15 consumo BRAPI + conciliação, V16 Plano LAC. (O baseline e `contracts/` ainda estão **não commitados** — ver T-INFRA-01.)
+- **Monitoramento em camadas (V13):** `COTACAO_E_HISTORICO` = favorito (BRAPI intradiária, mínimo 900 s, 10:05–17:35, máx. 35); `REFERENCIA_DIARIA` e legado `COTACAO` = sem BRAPI (preço oficial vem do COTAHIST).
+- **Rotina diária (Plano de atualização, `PLANO-ATUALIZACAO-DIARIA.md`):** Frente A infra (Garantir-Stack, rotina da manhã, restart policies, provisioner com build) ✔; Frente B gestor (orçamento BRAPI, ciclo intradiário, snapshot 17:40) ✔; Frente C insights/ETL (`--recuperar`, `--conciliar`) ✔. O gatilho "ao logon (+5 min)" **não pôde ser registrado no sandbox** (ONLOGON negado; só DAILY/WEEKLY) — registrar manualmente fora do sandbox.
+- **Fluxo de eventos:** gestor → SQS (`schemaVersion 1.0`, `dedupKey`) → worker valida schema, inbox `evento_processado` (V14) e efeito na mesma transação, ACK após commit. Payload inválido fica para a DLQ.
+- **Análise:** só regras determinísticas (Graham etc.); Gemini/S3 **descontinuados** (recursos Terraform podem sobrar). Backtest: nenhuma regra tem vantagem distinguível (DEC-07/08/09 no `gerar-insights`) — toda tela mantém aviso de regra **experimental**.
+- **Endpoints do gestor hoje (contrato com o painel):** `/ativos/registrados`, `/ativos/robusto/{s}`, `/ativos/registrar/{s}`, `/ativos/{s}/pregoes`, `/ativos/{s}/fatores`, `/ativos/{s}/proventos-contabeis`, `/analises/{s}/analise|fundamentos|fundamentos-cvm`, `/empresas/{s}/comunicados`, `/comunicados/newsletter`, `/setores`, `/indices-macro/{c}`, `/validacao/diario|saude-dados|backtest[?metodo=RANKING]`, favoritos e camada Base (detalhe no SPEC do gestor). GETs não gravam nem publicam.
+- **Imagens locais:** a stack local usa as imagens do Docker Hub tag `develop`; atualizar sem derrubar MySQL: `docker compose pull <serviço>` + `up -d --no-deps <serviço>`. A imagem `etl:develop` pode não conter ainda `--conciliar` (conferir antes de agendar).
+- **Artefatos de build local:** quando o Maven não alcança o Central (TLS), compilar com `javac --release 21 -parameters` contra o classpath do jar do container e aplicar hot-patch — é contingência, não processo.
+
+### 1A.4 Fila de trabalho (única; atualizar aqui)
+
+Estados: `PLANEJADO` · `EM ANDAMENTO (agente/branch, data)` · `IMPLEMENTADO` · `VERIFICADO` · `BLOQUEADO (motivo)`. Prioridade: P0 quebra o sistema, P1 valor direto, P2 melhoria.
+
+| ID | Repo | Pri | Tarefa | Depende | Estado |
+|---|---|---|---|---|---|
+| T-INFRA-01 | infra | P0 | Commitar o que está solto: `mysql-migrations/V1__baseline.sql`, remoção de `mysql-init/1 - schema.sql`, `contracts/`, `scripts/sincronizar-contratos.mjs`, `compose.contract-tests.yml`, `infra/s3/main.tf` — pertencem à sessão de contratos; **perguntar antes** | — | PLANEJADO |
+| T-INFRA-02 | infra | P1 | Registrar fora do sandbox a tarefa "ao logon +5 min" da rotina da manhã | Frente A | PLANEJADO |
+| T-INFRA-03 | infra | P1 | Publicar imagens `develop` atualizadas e conferir que `etl` tem `--conciliar` e `--proventos` | — | PLANEJADO |
+| LAC-INFRA-2 | infra+etl | P1 | Classificar `setor_grupo` (hoje tudo `A_CLASSIFICAR`) | V16 | PLANEJADO |
+| LAC-INFRA-3 | infra | P1 | Script de backfill (DFP 2010–15, ITR 2011–23, COTAHIST 2009–15) | LAC-ETL-3/4 | PLANEJADO |
+| LAC-INFRA-4 | infra+insights | P1 | Rotina mensal de cálculo de fatores/eventos (hoje `FATORES` e `EVENTOS_CORPORATIVOS` aparecem ATRASADA/SEM_DADO na saúde — esperado) | LAC-INS-9 | PLANEJADO |
+| LAC-ETL-* | etl | P1 | Ver SPEC do ETL: proventos/COTAHIST/contas de qualidade entregues (f9832b0); eventos corporativos, TTM trimestral histórico e backfill pendentes | — | EM ANDAMENTO |
+| LAC-INS-* | insights | P1 | Entregues 1..9 (8e9e159); falta rodar contra dados reais após backfill | LAC-ETL | EM ANDAMENTO |
+| LAC-GES-1..4 | gestor | P1 | Entregues (f548f97) | V16 | IMPLEMENTADO |
+| LAC-FE-1..4 | painel | P1 | Placar por ranking, cartão Fatores, proventos DVA, saúde com novas fontes | LAC-GES | PLANEJADO |
+| TASK-E09 | etl | P2 | Agendar `--comunicados` (a rotina da manhã já o chama — confirmar e fechar) | — | PLANEJADO |
+
+A fila completa histórica (TASK-01..45, ISS-, INT-) continua nas seções 6–7 e nos SPECs dos serviços; esta tabela só lista o que está aberto **agora**.
+
+### 1A.5 Contratos vigentes (índice; detalhe na seção 4)
+
+CTR-01..15 (seção 4) + Plano LAC (V16): `provento_contabil` (escritor: ETL), `evento_corporativo` (ETL/insights), `setor_grupo`, `fator_definicao`/`fator_valor`/`fator_mercado_mensal` (insights), `backtest_ranking_*` (insights), `cotacao_b3_diaria` com colunas novas `especificacao`, `marca_ex`, `fator_cotacao`, `preco_medio`, ofertas (ETL). Leitores: gestor (somente leitura) → painel por HTTP. `etl_execucao` registra a última execução de cada fonte (usada por `/validacao/saude-dados`, que lista 13 fontes com prazo e criticidade).
+
+### 1A.6 Decisões que não se desfazem sem discussão
+
+Flyway é o único dono do schema; migration aplicada não se edita. Cada tabela tem um escritor. GET nunca grava/publica. BRAPI só para favoritos e dentro do orçamento. Preço oficial = COTAHIST; BRAPI é foto intradiária conciliada (`--conciliar`). Nenhum rótulo de recomendação sem aviso de regra experimental (Res. CVM 20/2021). Valor ausente é `NULL` com motivo, nunca 0. Dados de ponto-no-tempo (`data_entrega`) — sem look-ahead no backtest.
+
+### 1A.7 Diário de handoff (mais novo no topo; uma linha por entrega)
+
+| Data | Agente | Repo | O que mudou / o que fica pendente |
+|---|---|---|---|
+| 2026-10-04 | Claude (sessão infra/gestor) | todos | Refatoração dos 5 SPECs: seção 1A (hub) e blocos "Coordenação". Pendente: confirmar com o dono da sessão de contratos o commit dos arquivos soltos (T-INFRA-01); podar seções históricas |
+| 2026-10-03 | Claude (sessão infra/gestor) | infra, gestor | V15/V16 aplicadas, Flyway reparado, LAC-GES-1..4, Frente A, restart policies; pushes feitos |
+| 2026-09-30 | Sessões 01/03 | todos | Plano LAC proposto; ETL/insights LAC implementados; ver commits `f9832b0`, `8e9e159` |
+
 ## 2. Visão do sistema
 
 Plataforma de acompanhamento de ações da B3 que coleta cotações, calcula valuation por regras (Graham) e produz uma análise textual com IA.
 
-```
-                       ┌────────────────────── Docker network "observability" ───────────────────────┐
-  BRAPI (HTTPS) <──────┤ gestor-ativos-brutos (Java, :8091)                                            │
-  Gemini (HTTPS) <─────┤   │ publica                      ▲ lê insight_acao          │ grava análise    │
-                       │   v                              │                          v                  │
-                       │ LocalStack (:4566)  SQS ─────────┼──> gerar-insights (Python worker)  S3 bucket │
-                       │   ├ tratar-ativos ───────────────┤      │ grava                                 │
-                       │   ├ sqs-registrar-series-historicas     v                                       │
-                       │   ├ sqs-iniciar-treinamento (sem uso)  MySQL 8 (:3305 host / :3306 rede)       │
-                       │   └ SNS transmitir-lote-dados (sem uso)  historico_acoes, insight_acao,        │
-                       │                                          serie_historica                       │
-                       │ etl-fundamentos-cvm (job em lote, profile "etl")                              │
-                       │   CVM (HTTPS) ──> DFP/ITR/FCA/FRE ──> fato_contabil, indicador_fundamentalista │
-                       │ terraform-provisioner (one-shot) ──> cria SQS/S3/SNS no LocalStack              │
-                       │ Observabilidade: Prometheus :9090 · Grafana :3000 · ELK (ES :9200, Logstash     │
-                       │                  :5000, Kibana :5601)                                          │
-                       └─────────────────────────────────────────────────────────────────────────────────┘
+```text
+B3/CVM -> ETL -> MySQL <- Gestor <- BRAPI
+                        |   |
+                        |   +-> SQS -> Worker -> MySQL
+                        +-> API Gestor -> Painel
+Infra/Flyway -> schema MySQL (único executor de migrations)
 ```
 
 ### 2.1 Fluxo ponta a ponta atual
-1. Um cliente chama `gestor` (`GET /ativos/{x}`, `GET /ativos/robusto/{x}` ou `POST /ativos/registrar/{x}`).
-2. `gestor` consulta a BRAPI e publica a cotação em `tratar-ativos` (e, no modo robusto, a série de 1 ano em `sqs-registrar-series-historicas`).
-3. `gerar-insights` consome, grava `historico_acoes`, calcula o insight e grava `insight_acao`; as séries viram *upsert* em `serie_historica`.
-4. Nos modos `processar`/robusto, o `gestor` lê `insight_acao` **logo em seguida** (antes do passo 3 terminar, ver `INT-02`), consolida, chama o Gemini e grava o JSON no S3.
+1. GET consulta MySQL ou BRAPI sem escrita ou publicação, inclusive em cache vazio.
+2. POST de cadastro persiste monitoramento e solicita coleta; o agendador mantém snapshots e séries.
+3. Gestor publica eventos `schemaVersion=1.0`, com `dedupKey` estável; worker valida JSON Schema antes de abrir transação.
+4. Worker reserva a chave na inbox `evento_processado` e grava o efeito na mesma transação. ACK só depois do commit; falha de processamento faz rollback; falha de ACK permite reentrega sem duplicação.
+5. Gestor lê insights persistidos e consolida decisão determinística. Gemini e armazenamento S3 não fazem parte deste fluxo; recursos Terraform antigos podem permanecer provisionados.
+6. ETL publica notificações versionadas de fundamentos e comunicados; ainda não há consumidores dessas filas. São notificações best-effort, não garantia de entrega transacional.
 
 ---
 
@@ -77,7 +142,7 @@ Plataforma de acompanhamento de ações da B3 que coleta cotações, calcula val
 |---|---|---|---|---|
 | localstack | `localstack/localstack:3.3` | 4566 | — | `SERVICES=sqs,s3,sns`, `DEBUG=1`, volume sem `PERSISTENCE` (estado efêmero) |
 | my-terraform-provisioner | `ewertonmiranda/infra-b3-ecossystem:latest` | — | localstack healthy | `entrypoint` sobrescrito para `terraform init && apply` (ignora o `entrypoint.sh`, ver `ISS-06`) |
-| mysql | `mysql:8.0` | 3305→3306 | — | `mysql-init/` executado **só na primeira criação do volume** (`ISS-03`) |
+| mysql | `mysql:8.0` | 3305→3306 | — | Flyway cria e evolui o schema após healthcheck |
 | gestor-ativos-brutos | `ewertonmiranda/gestor-ativos-brutos:latest` | 8091 | mysql, localstack, provisioner | `SPRING_PROFILES_ACTIVE=dev`, chaves via `${BRAPI_API_KEY}`/`${GEMINI_API_KEY}` |
 | gerar-insights | `ewertonmiranda/gerar-insights:latest` | 8080 | mysql, localstack, provisioner | Porta 8080 exposta, mas **não há servidor HTTP** (`ISS-08`) |
 | elasticsearch | `elasticsearch:8.14.0` | 9200 | — | `xpack.security.enabled=false`, heap 512 MB |
@@ -97,8 +162,8 @@ Variante mais enxuta (sem observabilidade) que faz build a partir de `./gestor-a
 - Estado local (`terraform.tfstate` no disco, ignorado pelo git); no container, o estado é efêmero.
 - Imagem `infra/Dockerfile`: `hashicorp/terraform:latest` + aws-cli/jq, usuário não-root, `entrypoint.sh` com init → validate → plan → apply.
 
-### 3.4 Schema MySQL (`mysql-init/1 - schema.sql`)
-Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo, data_pregao, intervalo)`). É a **fonte de schema mais completa hoje** (inclui índices que as entidades ORM não declaram).
+### 3.4 Schema MySQL (Flyway)
+`mysql-migrations/` é a fonte exclusiva: V1 cria a base em banco vazio; bancos existentes mantêm baseline 1; V2–V10 conservam checksums; V11 adiciona inbox. `db-migrate` termina antes dos serviços. O mount mysql-init foi removido.
 
 ### 3.5 CI (`.github/workflows`)
 - `01-feature-to-pr.yml`: abre PR `feature*` → `develop` automaticamente.
@@ -111,10 +176,10 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 
 | ID | Canal | Produtor → Consumidor | Formato / esquema | Garantias atuais |
 |---|---|---|---|---|
-| CTR-01 | SQS `tratar-ativos` | gestor → gerar-insights | JSON do `Ativo` (campos BRAPI em camelCase; ver `gestor#CTR-01`). Campos **obrigatórios para o consumidor**: `symbol`, `regularMarketPrice`, `earningsPerShare`. Usados: `priceEarnings`, `regularMarketOpen`, `regularMarketPreviousClose`, `regularMarketDayHigh/Low`, `regularMarketVolume`, `marketCap`, `fiftyTwoWeekLow/High` | Sem versão, sem atributo de deduplicação; `regularMarketTime` provavelmente nulo (`gestor#ISS-07`) |
-| CTR-02 | SQS `sqs-registrar-series-historicas` | gestor → gerar-insights | `{results:[{symbol, requestedSymbol, data:{usedInterval, usedRange, historicalDataPrice:[{date(epoch s), open, high, low, close, adjustedClose, volume, dataFormatada}]}}], requestedAt, took}` | Idempotente no consumidor (upsert por dia) |
-| CTR-03 | MySQL `insight_acao` | gerar-insights (escreve) → gestor (lê) | Colunas do `schema.sql`. `recomendacao` ∈ {`COMPRA_FORTE`, `COMPRA_MODERADA`, `VENDA_VALUATION`, `ALERTA_RISCO`, `MANTER`, `SEM_DADOS`}. `detalhes_json` v2.0; o gestor lê **apenas os campos numéricos de primeiro nível** (`earnings_yield_percent`, `desconto_maxima_52w_percent`, `crescimento_projetado_utilizado`) | Enum não compartilhado (`INT-01`); campos de primeiro nível não documentados como contrato |
-| CTR-04 | S3 `bucket-salvar-insights` | gestor → clientes HTTP | `{simbolo}/analises/{HH:mm:ss}.json` com `RespostaAnaliseIaDTO` | Sobrescrita diária (`gestor#ISS-16`) |
+| CTR-01 | SQS tratar-ativos | gestor → worker | `contracts/ativos.schema.json`, schemaVersion 1.0, dedupKey SHA-256 | Inbox transacional e índices únicos; compatibilidade com legado sem versão |
+| CTR-02 | SQS sqs-registrar-series-historicas | gestor → worker | `contracts/series_historicas.schema.json`, schemaVersion 1.0; results preservado | Chave exclui requestedAt/took; inbox evita reaplicar reentrega; upsert por candle |
+| CTR-03 | MySQL insight_acao | worker → gestor | `contracts/insight.schema.json`, schemaVersion e versao_payload 2.1; enum canônico gerado para Python, Java e JS | Leitura numérica de primeiro nível preservada; SEM_DADOS também versionado |
+| CTR-04 | S3 (histórico, descontinuado) | — | Não integra o fluxo atual de análise | IMPLEMENTADO — retirada do uso pelo gestor; eventual recurso Terraform é legado |
 | CTR-05 | MySQL `historico_acoes`, `serie_historica` | gerar-insights e ETL/COTAHIST (escrevem) | B3 é autoritativa na mesma chave e grava `fonte='B3'`; preços permanecem brutos e sinalizados como não ajustados | Leitura analítica futura; não usar preço bruto como ajustado |
 | CTR-06 | MySQL `indicador_fundamentalista` | etl-fundamentos-cvm → gestor | Fundamentos contábeis derivados da CVM. Escrito **só** pelo ETL, lido **só** pelo gestor (`GET /analises/{simbolo}/fundamentos-cvm`). Chave natural `(simbolo, periodo, tipo_periodo)`. Métrica nula é deliberada quando o plano de contas da companhia não a comporta; a razão vai em `cobertura_json` | `P/L` e `P/VP` **não** são colunas: o gestor os deriva na leitura cruzando `lpa`/`vpa` com o preço de `historico_acoes`. `fato_contabil` é landing interna do ETL e **não** é contrato de leitura |
 | CTR-07 | HTTP `GET /ativos/registrados` | gestor -> painel | Carteira monitorada. Alem da aba Monitorados, alimenta o seletor de ativos de todas as abas operacionais do painel | Virou contrato de navegacao: se cair, o front degrada para busca manual em vez de quebrar |
@@ -141,19 +206,19 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 | REQ-01 | Subir o ecossistema completo com um comando (`docker compose up -d`) | IMPLEMENTADO (com ressalvas `ISS-03`, `ISS-05`) |
 | REQ-02 | Provisionar filas, bucket e tópico automaticamente antes dos serviços | IMPLEMENTADO |
 | REQ-03 | Criar o schema MySQL de forma reprodutível, inclusive em bancos já existentes | IMPLEMENTADO com Flyway (2026-09-26) |
-| REQ-04 | Ter logs e métricas dos dois serviços centralizados | PARCIAL (`ISS-08`, `INT-06`) |
-| REQ-05 | Ambiente de desenvolvimento com build local dos serviços | NÃO FUNCIONAL (`ISS-04`) |
+| REQ-04 | Ter logs e métricas dos dois serviços centralizados | EM ANDAMENTO (`ISS-08`, `INT-06`) |
+| REQ-05 | Ambiente de desenvolvimento com build local dos serviços | PLANEJADO (`ISS-04`) |
 
 ### 5.2 Não funcionais
 
 | ID | Requisito | Status |
 |---|---|---|
-| NFR-01 | Nenhum segredo em arquivos do repositório ou no disco sem proteção | NÃO ATENDIDO (`ISS-01`) |
-| NFR-02 | Versões de imagem fixadas (sem `latest`) para reprodutibilidade | NÃO ATENDIDO (`ISS-05`) |
-| NFR-03 | Toda fila de trabalho com DLQ e `visibility_timeout` adequado | ATENDIDO (2026-09-26) |
-| NFR-04 | Entrega *at-least-once* tratada com idempotência ponta a ponta | NÃO ATENDIDO (`INT-03`) |
-| NFR-05 | Schema com dono único e migrations versionadas | NÃO ATENDIDO (`INT-04`) |
-| NFR-06 | O ecossistema sobe em máquina de 8 GB de RAM (perfil sem ELK opcional) | A VERIFICAR (`ISS-09`) |
+| NFR-01 | Nenhum segredo em arquivos do repositório ou no disco sem proteção | PLANEJADO (`ISS-01`) |
+| NFR-02 | Versões de imagem fixadas (sem `latest`) para reprodutibilidade | PLANEJADO (`ISS-05`) |
+| NFR-03 | Toda fila de trabalho com DLQ e `visibility_timeout` adequado | IMPLEMENTADO (2026-09-26) |
+| NFR-04 | Idempotência ponta a ponta no fluxo consumido SQS | IMPLEMENTADO — inbox transacional V11, GET sem escrita e ACK após commit |
+| NFR-05 | Schema com dono único e migrations versionadas | IMPLEMENTADO — V1 contém bootstrap; V2–V10 preservadas; V11 inbox; sem mysql-init |
+| NFR-06 | O ecossistema sobe em máquina de 8 GB de RAM (perfil sem ELK opcional) | IMPLEMENTADO (`ISS-09`) |
 
 ---
 
@@ -163,32 +228,32 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 
 | ID | Sev. | Problema | Evidência | Impacto | Correção sugerida | Status |
 |---|---|---|---|---|---|---|
-| INT-01 | Alto | Enum de recomendação não compartilhado: o gestor conta `"VENDA"`, o Python emite `"VENDA_VALUATION"` | `gestor: tools/ConsolidadorAnaliseAcao.java` × `gerar-insights: app/core/analysis/recommendation.py` | `perc_venda` sempre 0 no prompt do Gemini | Declarar o enum em CTR-03; testes de contrato nos dois lados | ABERTO |
-| INT-02 | Alto | Corrida: o gestor publica e lê `insight_acao` em seguida | `gestor: service/ServicoAtivo.java` | A análise de IA ignora o dado do dia; na primeira coleta não há análise | Evento "insight gerado" (usar o SNS `transmitir-lote-dados` ou uma fila `insight-gerado`) que dispara a análise | ABERTO |
-| INT-03 | Alto | Nenhuma idempotência ponta a ponta: GET com efeito colateral + fila *at-least-once* + inserts sem chave natural | `gestor#ISS-09`, `gerar-insights#ISS-02` | `historico_acoes`/`insight_acao` duplicados distorcem a consolidação (sinal predominante contado N vezes) | `dedupKey = symbol + regularMarketTime` como atributo da mensagem + `UNIQUE` no banco | ABERTO |
-| INT-04 | Alto | Três donos de schema: `mysql-init` (infra), Hibernate `ddl-auto=update` (gestor), entidades SQLAlchemy (Python) | `mysql-init/1 - schema.sql`, `gestor application-*.properties` | Drift; o Hibernate pode alterar a tabela `insight_acao` do Python | Dono único: migrations versionadas (Flyway ou Alembic) em um lugar; gestor com `validate`; `mysql-init` só para bootstrap | ABERTO |
-| INT-05 | Médio | O gestor depende de campos de primeiro nível de `detalhes_json` que a spec do Python classificava como "legado" | `gestor: ConsolidadorAnaliseAcao.consolidarIndicadores` | Removê-los no Python quebra a análise de IA sem erro visível | Formalizados em CTR-03; `gerar-insights` não pode removê-los sem nova versão | ABERTO |
-| INT-06 | Médio | Observabilidade assimétrica: Python sem `/metrics` e com logs só em stdout (fora do ELK); Java loga em texto num arquivo lido como JSON **e** via TCP (duplicado) | `prometheus.yml`, `logstash.conf`, `gestor logback-spring.xml` | Target `gerar-insights` sempre *down*; logs duplicados ou quebrados no Kibana | Python: `prometheus_client` em :8080 + logs JSON; Java: JSON só via TCP; remover o input de arquivo **ou** padronizar arquivos JSON | ABERTO |
-| INT-07 | Médio | Timestamp da cotação perdido no contrato (`regularMarketTime`) | `gestor#ISS-07` | Impossível deduplicar por pregão ou ordenar corretamente | ISO-8601 UTC obrigatório em CTR-01 | ABERTO |
-| INT-08 | Baixo | Recursos provisionados sem uso: `sqs-iniciar-treinamento`, SNS `transmitir-lote-dados` | `infra/main.tf` | Ruído/confusão | Documentar o uso planejado (DEC-03) ou remover | ABERTO |
+| INT-01 | Alto | Enum de recomendação não compartilhado: o gestor conta `"VENDA"`, o Python emite `"VENDA_VALUATION"` | `gestor: tools/ConsolidadorAnaliseAcao.java` × `gerar-insights: app/core/analysis/recommendation.py` | `perc_venda` sempre 0 no prompt do Gemini | Declarar o enum em CTR-03; testes de contrato nos dois lados | IMPLEMENTADO |
+| INT-02 | Alto | Corrida: o gestor publica e lê `insight_acao` em seguida | `gestor: service/ServicoAtivo.java` | A análise de IA ignora o dado do dia; na primeira coleta não há análise | Evento "insight gerado" (usar o SNS `transmitir-lote-dados` ou uma fila `insight-gerado`) que dispara a análise | PLANEJADO |
+| INT-03 | Alto | Nenhuma idempotência ponta a ponta: GET com efeito colateral + fila *at-least-once* + inserts sem chave natural | `gestor#ISS-09`, `gerar-insights#ISS-02` | `historico_acoes`/`insight_acao` duplicados distorcem a consolidação (sinal predominante contado N vezes) | `dedupKey = symbol + regularMarketTime` como atributo da mensagem + `UNIQUE` no banco | IMPLEMENTADO |
+| INT-04 | Alto | Três donos de schema: `mysql-init` (infra), Hibernate `ddl-auto=update` (gestor), entidades SQLAlchemy (Python) | `mysql-migrations/V1__baseline.sql`, `gestor application-*.properties` | Drift; o Hibernate pode alterar a tabela `insight_acao` do Python | Dono único: migrations versionadas (Flyway ou Alembic) em um lugar; gestor com `validate`; `mysql-init` só para bootstrap | IMPLEMENTADO |
+| INT-05 | Médio | O gestor depende de campos de primeiro nível de `detalhes_json` que a spec do Python classificava como "legado" | `gestor: ConsolidadorAnaliseAcao.consolidarIndicadores` | Removê-los no Python quebra a análise de IA sem erro visível | Formalizados em CTR-03; `gerar-insights` não pode removê-los sem nova versão | PLANEJADO |
+| INT-06 | Médio | Observabilidade assimétrica: Python sem `/metrics` e com logs só em stdout (fora do ELK); Java loga em texto num arquivo lido como JSON **e** via TCP (duplicado) | `prometheus.yml`, `logstash.conf`, `gestor logback-spring.xml` | Target `gerar-insights` sempre *down*; logs duplicados ou quebrados no Kibana | Python: `prometheus_client` em :8080 + logs JSON; Java: JSON só via TCP; remover o input de arquivo **ou** padronizar arquivos JSON | PLANEJADO |
+| INT-07 | Médio | Timestamp da cotação perdido no contrato (`regularMarketTime`) | `gestor#ISS-07` | Impossível deduplicar por pregão ou ordenar corretamente | ISO-8601 UTC obrigatório em CTR-01 | PLANEJADO |
+| INT-08 | Baixo | Recursos provisionados sem uso: `sqs-iniciar-treinamento`, SNS `transmitir-lote-dados` | `infra/main.tf` | Ruído/confusão | Documentar o uso planejado (DEC-03) ou remover | PLANEJADO |
 
 ### 6.2 Infraestrutura e Docker (`ISS-`)
 
 | ID | Sev. | Problema | Evidência | Impacto | Correção sugerida | Status |
 |---|---|---|---|---|---|---|
-| ISS-01 | **Crítico** | Chaves reais BRAPI/Gemini em texto puro | `docker-compose-local.yml` (não versionado, mas sem proteção no `.gitignore`); também em `gestor/src/main/resources/application-test.properties` | Vazamento no primeiro `git add .` | Revogar e gerar novas chaves; mover para `.env` (listado no `.gitignore`) com `env_file`; adicionar `docker-compose-local.yml`/`.env` ao `.gitignore` ou usar só `${VAR}`; gitleaks no CI | ABERTO |
-| ISS-02 | Alto | Filas sem DLQ e sem `visibility_timeout`/`redrive_policy` | Módulo cria uma DLQ por fila, `maxReceiveCount=5`, retenção de 14 dias e visibilidade de 120 s | Mensagem venenosa é isolada | Validar no LocalStack após apply | CONCLUIDO (2026-09-26) |
-| ISS-03 | Alto | `mysql-init` só roda com volume vazio | Compose executa Flyway one-shot com migrations versionadas e o gestor valida o schema | Bancos existentes recebem as colunas e índices novos | Migração V2 é idempotente | CONCLUIDO (2026-09-26) |
-| ISS-04 | Alto | `docker-compose-local.yml` aponta para contextos de build inexistentes (`./gestor-ativos-brutos`, `./gerar-insights`) | `docker-compose-local.yml` | Ambiente de desenvolvimento local não sobe | `context: ../gestor-ativos-brutos/gestor-ativos-brutos` e `../gerar-insights/gerar-insights`, ou variável `ECOSYSTEM_ROOT`; usar `docker-compose.override.yml` para builds locais | ABERTO |
-| ISS-05 | Médio | Imagens `latest` (serviços, prometheus, grafana, terraform) e tag `latest` publicada a partir de `develop` | `docker-compose.yml`, workflows | Build não reproduzível; `develop` quebrado vira `latest` | Fixar versões/digests; `latest` só a partir de tag semver em `main` | ABERTO |
-| ISS-06 | Médio | O compose sobrescreve o `entrypoint.sh` do provisionador, pulando `validate`/`plan` e os logs estruturados | `docker-compose.yml` (`entrypoint: terraform init && apply`) | Perde as validações que a imagem oferece | Remover o override e usar o `ENTRYPOINT` da imagem | ABERTO |
-| ISS-07 | Médio | Credenciais e flags inseguras: Grafana `admin/admin`, Elasticsearch sem segurança, LocalStack `DEBUG=1`, MySQL `root/root`, todas as portas expostas no host | `docker-compose.yml` | Aceitável só em máquina local; perigoso se reaproveitado em servidor | Variáveis em `.env`; bind em `127.0.0.1:`; marcar o compose como "somente dev" | ABERTO |
-| ISS-08 | Médio | `gerar-insights` expõe 8080 e o Prometheus faz scrape dele, mas o worker não tem HTTP | `docker-compose.yml`, `prometheus.yml` | Target sempre *down*; porta enganosa | Implementar `/metrics` e `/health` no worker (INT-06) ou remover porta e job | ABERTO |
-| ISS-09 | Médio | Pilha pesada: ES + Logstash + Kibana + Prometheus + Grafana + 2 JVMs (≈ 3–4 GB RAM) sempre ligados | `docker-compose.yml` | Máquina de desenvolvimento lenta | Compose `profiles` (`core`, `observability`); `docker compose --profile observability up` quando necessário | ABERTO |
-| ISS-10 | Baixo | `CreatedAt = timestamp()` nas tags causa diff permanente | `infra/locals.tf` | `plan` nunca fica limpo | Remover a tag ou usar `lifecycle { ignore_changes = [tags["CreatedAt"]] }` | ABERTO |
-| ISS-11 | Baixo | Healthcheck do MySQL no compose local sem credenciais; `gestor` espera só `service_started` | `docker-compose-local.yml` | Java pode subir antes do banco estar pronto | Mesmo healthcheck do compose principal + `service_healthy` | ABERTO |
-| ISS-12 | Baixo | CI da infra publica imagem sem `terraform fmt -check`, tflint ou checkov | `.github/workflows/02-docker-build-push.yml` | Qualidade e segurança do IaC não verificadas | Adicionar fmt/tflint/checkov | ABERTO |
-| ISS-13 | Médio | Trabalho não commitado nos **três** repositórios, em branches `feature-*` diferentes | `git status` de cada repo | Mudanças de contrato (série histórica, nova fila e tabela) podem ser integradas fora de ordem | Ordem de merge: infra (fila e tabela) → gerar-insights (consumidor) → gestor (produtor) | ABERTO |
+| ISS-01 | **Crítico** | Chaves reais BRAPI/Gemini em texto puro | `docker-compose-local.yml` (não versionado, mas sem proteção no `.gitignore`); também em `gestor/src/main/resources/application-test.properties` | Vazamento no primeiro `git add .` | Revogar e gerar novas chaves; mover para `.env` (listado no `.gitignore`) com `env_file`; adicionar `docker-compose-local.yml`/`.env` ao `.gitignore` ou usar só `${VAR}`; gitleaks no CI | PLANEJADO |
+| ISS-02 | Alto | Filas sem DLQ e sem `visibility_timeout`/`redrive_policy` | Módulo cria uma DLQ por fila, `maxReceiveCount=5`, retenção de 14 dias e visibilidade de 120 s | Mensagem venenosa é isolada | Validar no LocalStack após apply | IMPLEMENTADO (2026-09-26) |
+| ISS-03 | Alto | `mysql-init` só roda com volume vazio | Compose executa Flyway one-shot com migrations versionadas e o gestor valida o schema | Bancos existentes recebem as colunas e índices novos | Migração V2 é idempotente | IMPLEMENTADO (2026-09-26) |
+| ISS-04 | Alto | `docker-compose-local.yml` aponta para contextos de build inexistentes (`./gestor-ativos-brutos`, `./gerar-insights`) | `docker-compose-local.yml` | Ambiente de desenvolvimento local não sobe | `context: ../gestor-ativos-brutos/gestor-ativos-brutos` e `../gerar-insights/gerar-insights`, ou variável `ECOSYSTEM_ROOT`; usar `docker-compose.override.yml` para builds locais | PLANEJADO |
+| ISS-05 | Médio | Imagens `latest` (serviços, prometheus, grafana, terraform) e tag `latest` publicada a partir de `develop` | `docker-compose.yml`, workflows | Build não reproduzível; `develop` quebrado vira `latest` | Fixar versões/digests; `latest` só a partir de tag semver em `main` | PLANEJADO |
+| ISS-06 | Médio | O compose sobrescreve o `entrypoint.sh` do provisionador, pulando `validate`/`plan` e os logs estruturados | `docker-compose.yml` (`entrypoint: terraform init && apply`) | Perde as validações que a imagem oferece | Remover o override e usar o `ENTRYPOINT` da imagem | PLANEJADO |
+| ISS-07 | Médio | Credenciais e flags inseguras: Grafana `admin/admin`, Elasticsearch sem segurança, LocalStack `DEBUG=1`, MySQL `root/root`, todas as portas expostas no host | `docker-compose.yml` | Aceitável só em máquina local; perigoso se reaproveitado em servidor | Variáveis em `.env`; bind em `127.0.0.1:`; marcar o compose como "somente dev" | PLANEJADO |
+| ISS-08 | Médio | `gerar-insights` expõe 8080 e o Prometheus faz scrape dele, mas o worker não tem HTTP | `docker-compose.yml`, `prometheus.yml` | Target sempre *down*; porta enganosa | Implementar `/metrics` e `/health` no worker (INT-06) ou remover porta e job | PLANEJADO |
+| ISS-09 | Médio | Pilha pesada: ES + Logstash + Kibana + Prometheus + Grafana + 2 JVMs (≈ 3–4 GB RAM) sempre ligados | `docker-compose.yml` | Máquina de desenvolvimento lenta | Compose `profiles` (`core`, `observability`); `docker compose --profile observability up` quando necessário | PLANEJADO |
+| ISS-10 | Baixo | `CreatedAt = timestamp()` nas tags causa diff permanente | `infra/locals.tf` | `plan` nunca fica limpo | Remover a tag ou usar `lifecycle { ignore_changes = [tags["CreatedAt"]] }` | PLANEJADO |
+| ISS-11 | Baixo | Healthcheck do MySQL no compose local sem credenciais; `gestor` espera só `service_started` | `docker-compose-local.yml` | Java pode subir antes do banco estar pronto | Mesmo healthcheck do compose principal + `service_healthy` | PLANEJADO |
+| ISS-12 | Baixo | CI da infra publica imagem sem `terraform fmt -check`, tflint ou checkov | `.github/workflows/02-docker-build-push.yml` | Qualidade e segurança do IaC não verificadas | Adicionar fmt/tflint/checkov | PLANEJADO |
+| ISS-13 | Médio | Trabalho registrado no código nos **três** repositórios, em branches `feature-*` diferentes | `git status` de cada repo | Mudanças de contrato (série histórica, nova fila e tabela) podem ser integradas fora de ordem | Ordem de merge: infra (fila e tabela) → gerar-insights (consumidor) → gestor (produtor) | PLANEJADO |
 
 ---
 
@@ -198,33 +263,33 @@ Cria `historico_acoes`, `insight_acao` e `serie_historica` (com `UNIQUE (simbolo
 
 | ID | Tarefa | Resolve | Repos | Critério de aceite | Status |
 |---|---|---|---|---|---|
-| TASK-01 | Revogar e gerar novas chaves BRAPI/Gemini; `.env` + `.env.example`; gitleaks nos 3 CIs | ISS-01, NFR-01 | infra, gestor | Nenhum segredo em `git grep`; pipeline bloqueia segredo | ABERTO |
-| TASK-25 | Série histórica longa via COTAHIST da B3, quebrando o teto de 3 meses da BRAPI | CTR-05 | infra, etl | Carga filtra ativos monitorados, divide preços por 100 e grava `fonte='B3'` | CONCLUIDO (2026-09-26) |
+| TASK-01 | Revogar e gerar novas chaves BRAPI/Gemini; `.env` + `.env.example`; gitleaks nos 3 CIs | ISS-01, NFR-01 | infra, gestor | Nenhum segredo em `git grep`; pipeline bloqueia segredo | PLANEJADO |
+| TASK-25 | Série histórica longa via COTAHIST da B3, quebrando o teto de 3 meses da BRAPI | CTR-05 | infra, etl | Carga filtra ativos monitorados, divide preços por 100 e grava `fonte='B3'` | IMPLEMENTADO (2026-09-26) |
 | TASK-26 | Decidir e implementar o ajuste por proventos da série do COTAHIST (a fonte entrega preço bruto) | TASK-20 | etl | Fonte estruturada oficial identificada no UP2DATA, sem contrato gratuito confirmado; série permanece bruta e explicitamente sinalizada | BLOQUEADO por fonte/licença |
-| TASK-27 | Registrar em CTR-05 o segundo escritor de `serie_historica` (B3 além de BRAPI) e a regra de precedência | TASK-20 | infra | CTR-05 nomeia os dois escritores e diz qual vence na mesma chave | CONCLUIDO (2026-09-26) |
-| TASK-02 | Corrigir os contextos de build do compose local e usar o mesmo healthcheck | ISS-04, ISS-11 | infra | `docker compose -f docker-compose-local.yml up --build` sobe tudo *healthy* | ABERTO |
-| TASK-03 | Serviço one-shot `db-migrate` (Flyway) que aplica o schema de forma idempotente | ISS-03, INT-04 | infra | Com volume antigo, colunas e índices novos existem após `up` | CONCLUIDO (2026-09-26) |
-| TASK-04 | Merge coordenado das features pendentes na ordem infra → gerar-insights → gestor | ISS-13 | todos | Os 3 repos com `git status` limpo e PRs mergeados em `develop` | ABERTO |
+| TASK-27 | Registrar em CTR-05 o segundo escritor de `serie_historica` (B3 além de BRAPI) e a regra de precedência | TASK-20 | infra | CTR-05 nomeia os dois escritores e diz qual vence na mesma chave | IMPLEMENTADO (2026-09-26) |
+| TASK-02 | Corrigir os contextos de build do compose local e usar o mesmo healthcheck | ISS-04, ISS-11 | infra | `docker compose -f docker-compose-local.yml up --build` sobe tudo *healthy* | PLANEJADO |
+| TASK-03 | Serviço one-shot `db-migrate` (Flyway) que aplica o schema de forma idempotente | ISS-03, INT-04 | infra | Com volume antigo, colunas e índices novos existem após `up` | IMPLEMENTADO (2026-09-26) |
+| TASK-04 | Merge coordenado das features pendentes na ordem infra → gerar-insights → gestor | ISS-13 | todos | Os 3 repos com `git status` limpo e PRs mergeados em `develop` | PLANEJADO |
 
 ### Fase 1 — Contratos e confiabilidade
 
 | ID | Tarefa | Resolve | Repos | Critério de aceite | Depende de | Status |
 |---|---|---|---|---|---|---|
-| TASK-10 | DLQ + `visibility_timeout` + retenção no módulo SQS | ISS-02, NFR-03 | infra, gerar-insights | Mensagem que falha 5× vai para `<fila>-dlq` | — | CONCLUIDO (2026-09-26) |
-| TASK-11 | Enum de recomendações + `schemaVersion` + JSON Schema dos payloads em `contracts/` neste repo | INT-01, INT-05, CTR-01..03 | todos | Testes de contrato nos dois serviços validam contra `contracts/*.schema.json` | — | ABERTO |
-| TASK-12 | Idempotência ponta a ponta (`dedupKey`, `UNIQUE`, GET sem efeito colateral) | INT-03, INT-07, NFR-04 | todos | Reenviar a mesma mensagem 3× gera 1 linha | TASK-11 | ABERTO |
-| TASK-13 | Dono único de schema com migrations; gestor em `ddl-auto=validate` | INT-04, NFR-05 | todos | DEC-01 registrada; startup falha se houver drift | DEC-01 | ABERTO |
-| TASK-14 | Evento "insight gerado" desacoplando a análise de IA | INT-02 | todos | Análise S3 criada **depois** do insight do dia | DEC-02 | ABERTO |
+| TASK-10 | DLQ + `visibility_timeout` + retenção no módulo SQS | ISS-02, NFR-03 | infra, gerar-insights | Mensagem que falha 5× vai para `<fila>-dlq` | — | IMPLEMENTADO (2026-09-26) |
+| TASK-11 | Enum de recomendações + `schemaVersion` + JSON Schema dos payloads em `contracts/` neste repo | INT-01, INT-05, CTR-01..03 | todos | Testes de contrato nos dois serviços validam contra `contracts/*.schema.json` | — | IMPLEMENTADO |
+| TASK-12 | Idempotência ponta a ponta (`dedupKey`, `UNIQUE`, GET sem efeito colateral) | INT-03, INT-07, NFR-04 | todos | Reenviar a mesma mensagem 3× gera 1 linha | TASK-11 | IMPLEMENTADO |
+| TASK-13 | Dono único de schema com migrations; gestor em `ddl-auto=validate` | INT-04, NFR-05 | todos | DEC-01 registrada; startup falha se houver drift | DEC-01 | IMPLEMENTADO |
+| TASK-14 | Evento "insight gerado" desacoplando a análise de IA | INT-02 | todos | Análise S3 criada **depois** do insight do dia | DEC-02 | PLANEJADO |
 
 ### Fase 2 — Operação
 
 | ID | Tarefa | Resolve | Critério de aceite | Status |
 |---|---|---|---|---|
-| TASK-20 | Compose `profiles` (core / observability) e bind em 127.0.0.1 | ISS-07, ISS-09 | `docker compose up` sem profile sobe só o core | ABERTO |
-| TASK-21 | Observabilidade uniforme: métricas e logs JSON do Python; logs do Java sem duplicação; dashboards Grafana provisionados | INT-06, ISS-08 | Os 2 targets *up* no Prometheus; 1 evento = 1 documento no ES | ABERTO |
-| TASK-22 | Fixar versões de imagem; `latest` só em release | ISS-05 | Nenhum `:latest` no compose | ABERTO |
-| TASK-23 | Usar o `entrypoint.sh` do provisionador; remover `timestamp()` das tags; fmt/tflint/checkov no CI | ISS-06, ISS-10, ISS-12 | `terraform plan` limpo na 2ª execução | ABERTO |
-| TASK-24 | Decidir e implementar/remover `sqs-iniciar-treinamento` e SNS | INT-08 | DEC-03 registrada | ABERTO |
+| TASK-20 | Compose `profiles` (core / observability) e bind em 127.0.0.1 | ISS-07, ISS-09 | `docker compose up` sem profile sobe só o core | PLANEJADO |
+| TASK-21 | Observabilidade uniforme: métricas e logs JSON do Python; logs do Java sem duplicação; dashboards Grafana provisionados | INT-06, ISS-08 | Os 2 targets *up* no Prometheus; 1 evento = 1 documento no ES | PLANEJADO |
+| TASK-22 | Fixar versões de imagem; `latest` só em release | ISS-05 | Nenhum `:latest` no compose | PLANEJADO |
+| TASK-23 | Usar o `entrypoint.sh` do provisionador; remover `timestamp()` das tags; fmt/tflint/checkov no CI | ISS-06, ISS-10, ISS-12 | `terraform plan` limpo na 2ª execução | PLANEJADO |
+| TASK-24 | Decidir e implementar/remover `sqs-iniciar-treinamento` e SNS | INT-08 | DEC-03 registrada | PLANEJADO |
 
 ### Fase 3 — Precisão e confiabilidade (plano de 2026-09-27)
 
@@ -234,31 +299,31 @@ Ponto de partida medido: dados 31/31 com preço, balanço, data de entrega e TTM
 
 | ID | Tarefa | Repos | Critério de aceite | Depende de | Status |
 |---|---|---|---|---|---|
-| TASK-30 | Intervalo de confiança em todo placar: Wilson 95% para o acerto, média ± 1,96·erro-padrão para o excesso; "acima/abaixo da base" só quando o intervalo não cruza a taxa-base | gerar-insights, gestor, painel, infra (V9) | Painel mostra "58% (46–69%)"; linha sem significância aparece como "indistinguível da base" | — | CONCLUIDO (2026-09-27): V9, `tools/IntervaloConfianca` (gestor), `agregar` com desvio (gerar-insights), leitura no painel. Supõe janelas independentes — ver TASK-31 |
+| TASK-30 | Intervalo de confiança em todo placar: Wilson 95% para o acerto, média ± 1,96·erro-padrão para o excesso; "acima/abaixo da base" só quando o intervalo não cruza a taxa-base | gerar-insights, gestor, painel, infra (V9) | Painel mostra "58% (46–69%)"; linha sem significância aparece como "indistinguível da base" | — | IMPLEMENTADO (2026-09-27): V9, `tools/IntervaloConfianca` (gestor), `agregar` com desvio (gerar-insights), leitura no painel. Supõe janelas independentes — ver TASK-31 |
 | TASK-31 | Universo de backtest amplo e sem viés de sobrevivência: ações de lote padrão com ≥ 200 pregões e liquidez mínima **no ano anterior**, incluindo deslistadas, a partir do COTAHIST e dos DFP em cache; régua de mercado = média desse universo | etl, infra, gerar-insights | ≥ 3× janelas; deslistadas incluídas; intervalo de confiança por bootstrap em blocos (janelas sobrepostas e ativos correlacionados deixam o intervalo de TASK-30 otimista); cobertura de CNPJ por ano exibida; backtest < 5 min | TASK-30, **gerar-insights#TASK-59** | CONCLUIDO (2026-09-27): COTAHIST amplo 2016-2026 (1.785 códigos, 1,16 mi pregões); universo point-in-time em `app/validacao/universo.py` (≥ 200 pregões e ≥ R$ 5 mi/dia no ano anterior, sem units nem BDRs, com deslistadas): 93 a 191 ações por ano; DFP 2016-2025 de 249 empresas (`etl --universo-backtest`); backtest com 258 ativos, 15.732 amostras (5×); IC por bootstrap em blocos de meses (V12, `bootstrap.py`). **Resultado: nenhuma regra com vantagem distinguível** — acerto e excesso cruzam a base em todas as linhas, exceto a compra moderada da v1 antiga (+1,1% s/ carteira, IC +0,3 a +2,0). 38 papéis sem balanço por troca de código: `infra#TASK-45` |
-| TASK-32 | Sinais técnicos (momentum, reversão à média) avaliados no backtest como regras próprias | gerar-insights | Placar próprio; entram na recomendação só com vantagem nos dois períodos (DEC) | TASK-31 | ABERTO |
-| TASK-33 | Curva de calibração do score de confiança (acerto real por faixa de score) | gerar-insights, gestor, painel | Gráfico no painel; DEC: recalibrar ou retirar o score | TASK-31 | ABERTO |
+| TASK-32 | Sinais técnicos (momentum, reversão à média) avaliados no backtest como regras próprias | gerar-insights | Placar próprio; entram na recomendação só com vantagem nos dois períodos (DEC) | TASK-31 | PLANEJADO |
+| TASK-33 | Curva de calibração do score de confiança (acerto real por faixa de score) | gerar-insights, gestor, painel | Gráfico no painel; DEC: recalibrar ou retirar o score | TASK-31 | PLANEJADO |
 
 **Onda 2 — corrigir a regra (precisão do modelo)**
 
 | ID | Tarefa | Repos | Critério de aceite | Depende de | Status |
 |---|---|---|---|---|---|
-| TASK-34 | Crescimento nominal na v1 (g real + IPCA 12m) contra Y real (Selic − IPCA), escolhido por backtest | gerar-insights | Fração de vendas varia < 10 p.p. entre calibração e teste; separação não piora; DEC | TASK-31 | CONCLUIDO (2026-09-27): G_NOMINAL adotado (`gerar-insights#DEC-08`); vendas 20% → 32% entre calibração e teste (11,6 p.p., aceite era < 10) |
-| TASK-35 | `VENDA_VALUATION` vira `SEM_MARGEM` (sem direção) enquanto não houver vantagem medida com IC | gerar-insights, gestor, painel | Contrato de recomendações versionado (INT-01); tela sem "venda" generalizada | TASK-30 | ABERTO |
-| TASK-36 | Proventos: retorno e régua com proventos (feito: `gerar-insights` 7ea0d1e, 13b6287); contagem `janelas_com_provento` no placar (V10, `gerar-insights#TASK-56`); falta o histórico além dos ~12 meses que a B3 devolve por consulta (`gerar-insights#TASK-46`) | gestor, gerar-insights | Placar diz quantas janelas foram ajustadas; histórico com fonte registrada em DEC | — | PARCIAL |
+| TASK-34 | Crescimento nominal na v1 (g real + IPCA 12m) contra Y real (Selic − IPCA), escolhido por backtest | gerar-insights | Fração de vendas varia < 10 p.p. entre calibração e teste; separação não piora; DEC | TASK-31 | IMPLEMENTADO (2026-09-27): G_NOMINAL adotado (`gerar-insights#DEC-08`); vendas 20% → 32% entre calibração e teste (11,6 p.p., aceite era < 10) |
+| TASK-35 | `VENDA_VALUATION` vira `SEM_MARGEM` (sem direção) enquanto não houver vantagem medida com IC | gerar-insights, gestor, painel | Contrato de recomendações versionado (INT-01); tela sem "venda" generalizada | TASK-30 | PLANEJADO |
+| TASK-36 | Proventos: retorno e régua com proventos (feito: `gerar-insights` 7ea0d1e, 13b6287); contagem `janelas_com_provento` no placar (V10, `gerar-insights#TASK-56`); falta o histórico além dos ~12 meses que a B3 devolve por consulta (`gerar-insights#TASK-46`) | gestor, gerar-insights | Placar diz quantas janelas foram ajustadas; histórico com fonte registrada em DEC | — | EM ANDAMENTO |
 | TASK-37 | Recalibrar limiares no universo amplo, objetivo pelo limite inferior do IC | gerar-insights | DEC com limiares e intervalo | TASK-31, TASK-34 | CONCLUIDO (2026-09-27), sem mudança de limiares — ver `gerar-insights#DEC-09`: nenhuma das 1.944 combinações válidas teve o limite inferior do IC da separação acima de zero na calibração (melhor: −2,1 a +3,2 p.p.) |
-| TASK-38 | Decidir v1 × v2 pelos números (a vencedora nos dois períodos, com IC, vira a oficial) | gerar-insights | DEC com números; `VERSAO_REGRA` incrementada | TASK-37 | ABERTO |
+| TASK-38 | Decidir v1 × v2 pelos números (a vencedora nos dois períodos, com IC, vira a oficial) | gerar-insights | DEC com números; `VERSAO_REGRA` incrementada | TASK-37 | PLANEJADO |
 
 **Onda 3 — confiabilidade operacional**
 
 | ID | Tarefa | Repos | Critério de aceite | Depende de | Status |
 |---|---|---|---|---|---|
-| TASK-39 | Checagens de dados depois de cada carga (lucro zero com receita, LPA fora da mediana, balanço sem data de entrega, salto sem evento, papel sem CNPJ, BRAPI × COTAHIST) gravadas em `checagem_dados`; severidade ERRO vira ERRO na saúde dos dados | etl, infra (migração nova), gestor | O caso TIMS3 (lucro 0) é pego sozinho; teste de regressão | — | ABERTO |
-| TASK-40 | Alerta ativo: `checar-saude.ps1` diário lê `/validacao/saude-dados` e avisa por Telegram no estado PROBLEMA; grava `saude_dados_historico` | infra, gestor | Falha provocada chega ao celular (bot criado pelo usuário) | — | ABERTO |
-| TASK-41 | Backup fora da máquina (pasta sincronizada ou disco externo), semanal, com restauração mensal testada a partir da cópia | infra | Restauração da cópia registrada na saúde dos dados | — | ABERTO |
-| TASK-42 | CI com teste, lint e tipos antes do build nos 5 repositórios; corrigir o teste `>Formulas<` do painel | todos | Pipeline vermelho bloqueia a imagem | — | ABERTO |
-| TASK-43 | Protocolo de trabalho paralelo entre sessões/agentes (regra 6 da seção 1) | infra | Regra escrita; nenhum commit misturado depois dela | — | CONCLUIDO (2026-09-27) |
-| TASK-44 | Sequência de dias com a saúde dos dados verde, na aba Avaliação | gestor, painel | Evidência para a nota de confiabilidade 7 | TASK-40 | ABERTO |
+| TASK-39 | Checagens de dados depois de cada carga (lucro zero com receita, LPA fora da mediana, balanço sem data de entrega, salto sem evento, papel sem CNPJ, BRAPI × COTAHIST) gravadas em `checagem_dados`; severidade ERRO vira ERRO na saúde dos dados | etl, infra (migração nova), gestor | O caso TIMS3 (lucro 0) é pego sozinho; teste de regressão | — | PLANEJADO |
+| TASK-40 | Alerta ativo: `checar-saude.ps1` diário lê `/validacao/saude-dados` e avisa por Telegram no estado PROBLEMA; grava `saude_dados_historico` | infra, gestor | Falha provocada chega ao celular (bot criado pelo usuário) | — | PLANEJADO |
+| TASK-41 | Backup fora da máquina (pasta sincronizada ou disco externo), semanal, com restauração mensal testada a partir da cópia | infra | Restauração da cópia registrada na saúde dos dados | — | PLANEJADO |
+| TASK-42 | CI com teste, lint e tipos antes do build nos 5 repositórios; corrigir o teste `>Formulas<` do painel | todos | Pipeline vermelho bloqueia a imagem | — | PLANEJADO |
+| TASK-43 | Protocolo de trabalho paralelo entre sessões/agentes (regra 6 da seção 1) | infra | Regra escrita; nenhum commit misturado depois dela | — | IMPLEMENTADO (2026-09-27) |
+| TASK-44 | Sequência de dias com a saúde dos dados verde, na aba Avaliação | gestor, painel | Evidência para a nota de confiabilidade 7 | TASK-40 | PLANEJADO |
 | TASK-45 | Curadoria de códigos renomeados do universo amplo na `ativo_identidade` (VIIA3→BHIA3, KROT3→COGN3, BTOW3/AMER3, SUZB5→SUZB3, VALE5, RUMO3→RAIL3, CLSA3, DMMO3…): 38 dos 258 papéis do backtest ficaram sem balanço porque o FCA não liga o código antigo ao CNPJ | etl, infra (migração nova) | Lista de "sem nenhum balanço" nas observações do backtest cai para perto de zero | TASK-31 | ABERTO |
 
 ---
@@ -267,11 +332,11 @@ Ponto de partida medido: dados 31/31 com preço, balanço, data de entrega e TTM
 
 | ID | Pergunta | Opções | Recomendação da análise | Status |
 |---|---|---|---|---|
-| DEC-01 | Dono do schema MySQL | (a) infra (`mysql-init` + Flyway/Liquibase); (b) gerar-insights (Alembic), que é quem escreve; (c) gestor (Flyway) | (b) ou (a): quem escreve define; o gestor só valida | ABERTO |
-| DEC-02 | Gatilho da análise de IA | síncrono / evento SNS pós-insight / agendamento | Evento pós-insight | ABERTO |
-| DEC-03 | Destino de `sqs-iniciar-treinamento` e do SNS `transmitir-lote-dados` | manter com caso de uso documentado / remover | Usar o SNS no DEC-02; remover a fila de treinamento até existir consumidor | ABERTO |
-| DEC-04 | Onde ficam os contratos (JSON Schema) | este repo (`contracts/`) / repo próprio / cada serviço | Este repo, por já ser o "dono" do ecossistema | ABERTO |
-| DEC-05 | Ambiente alvo além do local | só local / AWS real (dev/homolog/prod já previstos em `var.environment`) | Definir antes de TASK-13 do gestor (credenciais) | ABERTO |
+| DEC-01 | Dono do schema MySQL | Infraestrutura/Flyway, diretório mysql-migrations | Java apenas validate; Python apenas DML; não editar migrations aplicadas | IMPLEMENTADO |
+| DEC-02 | Gatilho da análise de IA | síncrono / evento SNS pós-insight / agendamento | Evento pós-insight | PLANEJADO |
+| DEC-03 | Destino de `sqs-iniciar-treinamento` e do SNS `transmitir-lote-dados` | manter com caso de uso documentado / remover | Usar o SNS no DEC-02; remover a fila de treinamento até existir consumidor | PLANEJADO |
+| DEC-04 | Fonte dos contratos | infra/contracts/*.schema.json | Distribuição pelo script sincronizar-contratos.mjs; --check detecta divergências | IMPLEMENTADO |
+| DEC-05 | Ambiente alvo além do local | só local / AWS real (dev/homolog/prod já previstos em `var.environment`) | Definir antes de TASK-13 do gestor (credenciais) | PLANEJADO |
 
 ---
 
@@ -299,6 +364,15 @@ docker exec -it mysql mysql -uspring -pspring123 minha_base \
 # observabilidade
 # Prometheus: http://localhost:9090/targets · Grafana: http://localhost:3000 · Kibana: http://localhost:5601
 ```
+
+## Revisão integrada de 2026-09-27
+
+| Entrega | Estado | Evidência e limite |
+|---|---|---|
+| Proprietário único do schema | IMPLEMENTADO | Infra/Flyway: V1 bootstrap, V11 inbox; serviços não executam migrations |
+| Eventos e recomendações | IMPLEMENTADO | schemas canônicos em infra/contracts; enum gerado em Java, Python e JS; versões desconhecidas ficam para DLQ |
+| Leituras HTTP e idempotência | IMPLEMENTADO | GET sem persistência/publicação; inbox e efeitos na mesma transação; ACK posterior ao commit |
+| Verificação desta entrega | EM ANDAMENTO | Resultados registrados em infra/VERIFICACAO-2026-09-27.md; não representa deploy no banco em uso |
 
 ## Plano LAC: 9 lacunas de assertividade (proposta de 30-09-2026, EM AVALIAÇÃO)
 
