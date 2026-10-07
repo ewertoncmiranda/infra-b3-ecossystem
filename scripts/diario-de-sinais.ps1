@@ -10,7 +10,7 @@
 # Desativar:
 #   schtasks /Delete /TN "B3 - Diario de sinais" /F
 #
-# Log: %LOCALAPPDATA%\b3-ecossistema\diario-de-sinais.log
+# Log: %USERPROFILE%\b3-ecossistema\diario-de-sinais.log (fora de AppData: TASK-E21, ver comum.ps1)
 #
 # Feriado nao precisa de tratamento: sem candle no dia, o registrar nao grava
 # nada. Dia perdido (maquina desligada) se recupera rodando com --data:
@@ -26,7 +26,7 @@ $infra = Split-Path -Parent $PSScriptRoot
 # Fora de infra-b3-ecossytem\logs de proposito: essa pasta e montada no
 # Logstash, que mantem os *.log abertos (no Windows isso bloqueia a escrita)
 # e tentaria ler este texto puro como JSON.
-$log = Join-Path $env:LOCALAPPDATA 'b3-ecossistema\diario-de-sinais.log'
+$log = Join-Path $env:USERPROFILE 'b3-ecossistema\diario-de-sinais.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) -ErrorAction Stop | Out-Null
 
 Set-Location $infra

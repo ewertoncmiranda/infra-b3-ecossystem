@@ -1,0 +1,23 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: contract-test
+      MYSQL_DATABASE: contratos_test
+    ports:
+      - "127.0.0.1:33316:3306"
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--protocol=tcp", "-h", "127.0.0.1", "-uroot", "-pcontract-test"]
+      interval: 2s
+      timeout: 2s
+      retries: 40
+  migrate:
+    image: flyway/flyway:10.17.0
+    command: ["-url=jdbc:mysql://mysql:3306/contratos_test?allowPublicKeyRetrieval=true&useSSL=false", "-user=root", "-password=contract-test", "migrate"]
+    volumes:
+      - ./mysql-migrations:/flyway/sql:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
