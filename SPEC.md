@@ -94,8 +94,8 @@ Estados: `PLANEJADO` · `EM ANDAMENTO (agente/branch, data)` · `IMPLEMENTADO` �
 | LAC-INS-* | insights | P1 | Entregues 1..9 (8e9e159); falta rodar contra dados reais após backfill | LAC-ETL | EM ANDAMENTO |
 | LAC-GES-1..4 | gestor | P1 | Entregues (f548f97) | V16 | IMPLEMENTADO |
 | LAC-FE-1..4 | painel | P1 | Placar por ranking, cartão Fatores, proventos DVA, saúde com novas fontes | LAC-GES | IMPLEMENTADO (2026-10-07, painel; falta reimplantar o gestor e validar com dados reais) |
-| TASK-UX-5 | gestor | P2 | `GET` de listagem de ativos para o painel (favoritos + base): símbolo, empresa, setor, preço e variação, série curta para sparkline, sinal atual, último comunicado e flags de qualidade, paginado e filtrável por favorito/setor. Destrava a tabela única do painel (REQ-UX-8) | — | PLANEJADO |
-| TASK-UX-6 | painel | P2 | Tabela única de ativos no painel e remoção das listas redundantes (Base, Favoritos, Setores, Monitorados) | TASK-UX-5 | PLANEJADO |
+| TASK-UX-5 | gestor | P2 | `GET` de listagem de ativos para o painel (favoritos + base): símbolo, empresa, setor, preço e variação, série curta para sparkline, sinal atual, último comunicado e flags de qualidade, paginado e filtrável por favorito/setor. Destrava a tabela única do painel (REQ-UX-8) | — | EM ANDAMENTO (Sessão 01/feature-teste, 2026-10-07) |
+| TASK-UX-6 | painel | P2 | Tabela única de ativos no painel e remoção das listas redundantes (Base, Favoritos, Setores, Monitorados) | TASK-UX-5 | EM ANDAMENTO (Sessão 01/feature-comunicados-cvm, 2026-10-07) |
 | TASK-E09 | etl | P2 | Agendar `--comunicados` (a rotina da manhã já o chama — confirmar e fechar) | — | EM ANDAMENTO (Sessão 03/feature-nova-infra, 2026-10-07) |
 
 A fila completa histórica (TASK-01..45, ISS-, INT-) continua nas seções 6–7 e nos SPECs dos serviços; esta tabela só lista o que está aberto **agora**.
