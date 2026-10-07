@@ -52,11 +52,28 @@ if ((Get-Date).DayOfWeek -eq 'Friday') {
     $passos['backtest'] = $insights + @('app.validacao.backtest')
 }
 
+# Mensal (LAC-INFRA-4): eventos corporativos e fatores do plano LAC, na
+# referencia do primeiro pregao do mes. Roda quando o COTAHIST ja tem um
+# pregao do mes corrente e fator_valor ainda nao tem referencia nele - nao
+# depende de ligar a maquina num dia certo; o atraso se recupera sozinho.
+# Eventos antes: os fatores ajustam o preco por eles. Requer as imagens
+# com --eventos-corporativos (ETL) e app.fatores (insights) - T-INFRA-03.
+$sqlMensal = "SELECT COALESCE((SELECT MIN(data_pregao) FROM cotacao_b3_diaria " +
+    "WHERE data_pregao >= DATE_FORMAT(CURDATE(), '%Y-%m-01')) > " +
+    "COALESCE((SELECT MAX(data_referencia) FROM fator_valor), '1900-01-01'), 0);"
+if ((Executar-Sql $sqlMensal | Select-Object -First 1) -eq '1') {
+    $mesAnterior = (Get-Date).AddMonths(-1).ToString('yyyy-MM')
+    $passos['eventos corporativos'] = $etl + @('--eventos-corporativos')
+    # --desde o mes anterior: refaz o mes passado (idempotente) caso a
+    # rodada dele tenha sido antes do COTAHIST fechar o mes.
+    $passos['fatores (mensal)'] = $insights + @('app.fatores', 'calcular', '--desde', $mesAnterior)
+}
+
 $falhas = @()
 foreach ($nome in $passos.Keys) {
     Escrever-Log $log "inicio: $nome"
     $r = Rodar-Compose $passos[$nome]
-    $r.Saida | Where-Object { $_ -match 'concluid|ERROR|CRITICAL|Traceback|indisponivel|corrigida|Insights diarios|Diario|Avaliacao|conciliac|divergen' } |
+    $r.Saida | Where-Object { $_ -match 'concluid|ERROR|CRITICAL|Traceback|indisponivel|corrigida|Insights diarios|Diario|Avaliacao|conciliac|divergen|Eventos|Fatores' } |
         ForEach-Object { Escrever-Log $log "  $_" }
     if ($r.Codigo -ne 0) {
         Escrever-Log $log "FALHOU: $nome (codigo $($r.Codigo))"

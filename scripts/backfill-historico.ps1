@@ -13,6 +13,10 @@
 #   3. TTM       2012..Ate   ITR aberto comeca em 2011, e o TTM do ano Y usa
 #                            o ITR de Y-1 (e a DFP de Y-1 e de Y)
 #   4. Proventos 2010..Ate   DVA da DFP e do ITR do mesmo ano
+#   5. Eventos               desdobramento/grupamento/bonificacao (todos os
+#                            anos; le o que 1 e 2 gravaram, sem download)
+#   6. Fatores   2010-01..   gerar-insights, um calculo por mes (ajusta o
+#                            preco pelos eventos de 5)
 #
 # Requer a imagem do ETL com LAC-ETL-3 (etl-fundamentos-cvm >= 1174020:
 # TTM de todos os trimestres e --ttm --universo-backtest). Com a imagem
@@ -35,6 +39,7 @@ if (-not (Garantir-Stack)) {
 }
 
 $etl = @('--profile', 'etl', 'run', '--rm', '--no-deps', 'etl-fundamentos-cvm')
+$insights = @('run', '--rm', '--no-deps', 'gerar-insights', 'python', '-m')
 
 function Anos([int]$Inicio) {
     $primeiro = [Math]::Max($De, $Inicio)
@@ -49,6 +54,7 @@ $etapas = [ordered]@{
     'DFP'       = (Anos 2010) + @('--universo-backtest', '--forcar')
     'TTM'       = @('--ttm') + (Anos 2012) + @('--universo-backtest', '--forcar')
     'proventos' = @('--proventos') + (Anos 2010) + @('--universo-backtest')
+    'eventos'   = @('--eventos-corporativos', '--ano', "$De", '--ano', "$Ate")
 }
 
 $falhas = @()
@@ -66,6 +72,16 @@ foreach ($nome in $etapas.Keys) {
         Escrever-Log $log "FALHOU: $nome (codigo $($r.Codigo))"
         $falhas += $nome
     }
+}
+
+# Fatores por ultimo, no gerar-insights: dependem de tudo acima.
+$desdeFatores = "$([Math]::Max($De, 2010))-01"
+Escrever-Log $log "inicio: fatores desde $desdeFatores"
+$r = Rodar-Compose ($insights + @('app.fatores', 'calcular', '--desde', $desdeFatores))
+$r.Saida | Where-Object { $_ -match 'Fatores|ERROR|CRITICAL|Traceback' } | ForEach-Object { Escrever-Log $log "  $_" }
+if ($r.Codigo -ne 0) {
+    Escrever-Log $log "FALHOU: fatores (codigo $($r.Codigo))"
+    $falhas += 'fatores'
 }
 
 if ($falhas.Count -gt 0) {
