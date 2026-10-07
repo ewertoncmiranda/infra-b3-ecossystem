@@ -32,7 +32,11 @@ services:
       AWS_DEFAULT_REGION: sa-east-1
       TF_VAR_aws_endpoint: http://localstack:4566
     entrypoint: >
-      /bin/sh -c "terraform init && terraform apply -auto-approve"
+      /bin/sh -c "terraform init && terraform apply -auto-approve -state=/estado/terraform.tfstate"
+    # Estado fora do container: recriar o provisionador (imagem nova) nao pode
+    # perder o estado e tentar recriar filas/buckets que ja existem (409).
+    volumes:
+      - terraform_estado:/estado
     depends_on:
       localstack:
         condition: service_healthy
@@ -338,6 +342,7 @@ services:
 volumes:
   mysql_data:
   localstack_data:
+  terraform_estado:
   cvm_cache:
   elasticsearch_data:
   prometheus_data:
