@@ -83,18 +83,20 @@ Estados: `PLANEJADO` · `EM ANDAMENTO (agente/branch, data)` · `IMPLEMENTADO` �
 | ID | Repo | Pri | Tarefa | Depende | Estado |
 |---|---|---|---|---|---|
 | T-INFRA-01 | infra | P0 | Commitar o que está solto: `mysql-migrations/V1__baseline.sql`, remoção de `mysql-init/1 - schema.sql`, `contracts/`, `scripts/sincronizar-contratos.mjs`, `compose.contract-tests.yml`, `infra/s3/main.tf` — pertencem à sessão de contratos; **perguntar antes** | — | PLANEJADO |
-| T-INFRA-02 | infra | P1 | Registrar fora do sandbox a tarefa "ao logon +5 min" da rotina da manhã | Frente A | PLANEJADO |
+| T-INFRA-02 / TASK-E20 | infra | P1 | Registrar fora do sandbox a tarefa "ao logon +5 min" da rotina da manhã; `StartWhenAvailable` na rotina e no backup (ISS-E15 do ETL) | Frente A | EM ANDAMENTO (Sessão 03/feature-nova-infra, 2026-10-07) |
+| TASK-E21 | infra | P1 | Logs/backups fora da virtualização MSIX do app Claude; dump pré-V16 para a pasta real; `Garantir-Stack` no backup (ISS-E16 do ETL) | — | EM ANDAMENTO (Sessão 03/feature-nova-infra, 2026-10-07) |
+| TASK-E19 | etl | P1 | Nova tentativa no `ClienteHttpCvm` (ISS-E14) | — | EM ANDAMENTO (Sessão 03/feature-comunicados-cvm, 2026-10-07) — código já entregue em 3dd1687 (Codex); conferindo aceite |
 | T-INFRA-03 | infra | P1 | Publicar imagens `develop` atualizadas e conferir que `etl` tem `--conciliar` e `--proventos` | — | PLANEJADO |
-| LAC-INFRA-2 | infra+etl | P1 | Classificar `setor_grupo` (hoje tudo `A_CLASSIFICAR`) | V16 | PLANEJADO |
+| LAC-INFRA-2 | infra+etl | P1 | Classificar `setor_grupo` (hoje tudo `A_CLASSIFICAR`) | V16 | EM ANDAMENTO (Sessão 03/feature-nova-infra, 2026-10-07) |
 | LAC-INFRA-3 | infra | P1 | Script de backfill (DFP 2010–15, ITR 2011–23, COTAHIST 2009–15) | LAC-ETL-3/4 | PLANEJADO |
 | LAC-INFRA-4 | infra+insights | P1 | Rotina mensal de cálculo de fatores/eventos (hoje `FATORES` e `EVENTOS_CORPORATIVOS` aparecem ATRASADA/SEM_DADO na saúde — esperado) | LAC-INS-9 | PLANEJADO |
-| LAC-ETL-* | etl | P1 | Ver SPEC do ETL: proventos/COTAHIST/contas de qualidade entregues (f9832b0); eventos corporativos, TTM trimestral histórico e backfill pendentes | — | EM ANDAMENTO |
+| LAC-ETL-* | etl | P1 | Ver SPEC do ETL: proventos/COTAHIST/contas de qualidade entregues (f9832b0); TTM por trimestre e exercício fora do ano civil (c81278e); eventos corporativos, ITR 2011–2023 e backfill pendentes | — | EM ANDAMENTO (Sessão 03/feature-comunicados-cvm, 2026-10-07) |
 | LAC-INS-* | insights | P1 | Entregues 1..9 (8e9e159); falta rodar contra dados reais após backfill | LAC-ETL | EM ANDAMENTO |
 | LAC-GES-1..4 | gestor | P1 | Entregues (f548f97) | V16 | IMPLEMENTADO |
 | LAC-FE-1..4 | painel | P1 | Placar por ranking, cartão Fatores, proventos DVA, saúde com novas fontes | LAC-GES | IMPLEMENTADO (2026-10-07, painel; falta reimplantar o gestor e validar com dados reais) |
 | TASK-UX-5 | gestor | P2 | `GET` de listagem de ativos para o painel (favoritos + base): símbolo, empresa, setor, preço e variação, série curta para sparkline, sinal atual, último comunicado e flags de qualidade, paginado e filtrável por favorito/setor. Destrava a tabela única do painel (REQ-UX-8) | — | PLANEJADO |
 | TASK-UX-6 | painel | P2 | Tabela única de ativos no painel e remoção das listas redundantes (Base, Favoritos, Setores, Monitorados) | TASK-UX-5 | PLANEJADO |
-| TASK-E09 | etl | P2 | Agendar `--comunicados` (a rotina da manhã já o chama — confirmar e fechar) | — | PLANEJADO |
+| TASK-E09 | etl | P2 | Agendar `--comunicados` (a rotina da manhã já o chama — confirmar e fechar) | — | EM ANDAMENTO (Sessão 03/feature-nova-infra, 2026-10-07) |
 
 A fila completa histórica (TASK-01..45, ISS-, INT-) continua nas seções 6–7 e nos SPECs dos serviços; esta tabela só lista o que está aberto **agora**.
 
