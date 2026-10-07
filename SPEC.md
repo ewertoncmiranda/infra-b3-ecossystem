@@ -62,6 +62,7 @@ Regras:
 | `gerar-insights` | Python (worker + CLIs de validação) | `feature-migrate` | `insight_acao`, diário, backtest, fatores LAC | `gerar-insights/gerar-insights/SPEC.md` |
 | `etl-fundamentos-cvm` | Python hexagonal | `feature-comunicados-cvm` | fundamentos, TTM, comunicados, COTAHIST, DVA, conciliação | `etl-fundamentos-cvm/SPEC.md` |
 | `painel-ativos-frontend` | Node/Express + Web Components | `feature-comunicados-cvm` | UI; só consome HTTP do gestor | `painel-ativos-frontend/SPEC.md` |
+| `insider-ia-b3-ecossytem` | Python/FastAPI + Ollama | `feature-esqueleto` | opinião por horizonte (skills, fichas, RAG); lê o schema, não cria tabelas (`opiniao_ia` = V22) | `insider-ia-b3-ecossytem/SPEC.md` |
 
 Regra de propriedade de dados: **só o Flyway cria/altera tabelas** (`ddl-auto=validate`; migration aplicada nunca é editada — corrigir com nova versão). Cada tabela tem um escritor; os demais só leem.
 
@@ -97,6 +98,12 @@ egistrar-rotinas.ps1` num PowerShell fora do app Claude — Sessão 03, 2026-10-
 | LAC-FE-1..4 | painel | P1 | Placar por ranking, cartão Fatores, proventos DVA, saúde com novas fontes | LAC-GES | IMPLEMENTADO (2026-10-07, painel; falta reimplantar o gestor e validar com dados reais) |
 | TASK-UX-5 | gestor | P2 | `GET` de listagem de ativos para o painel (favoritos + base): símbolo, empresa, setor, preço e variação, série curta para sparkline, sinal atual, último comunicado e flags de qualidade, paginado e filtrável por favorito/setor. Destrava a tabela única do painel (REQ-UX-8) | — | IMPLEMENTADO (2026-10-07, `GET /painel/ativos`, gestor `bef0ab0`; falta reimplantar o gestor) |
 | TASK-UX-6 | painel | P2 | Tabela única de ativos no painel e remoção das listas redundantes (Base, Favoritos, Setores, Monitorados) | TASK-UX-5 | IMPLEMENTADO (2026-10-07, painel `f20e9e6`: `#/ativos`; rotas antigas abrem a tabela; falta reimplantar o gestor) |
+| IA-01 | insider-ia | P1 | Esqueleto do serviço de IA (FastAPI, Dockerfile, compose.ia com duas redes, CI); remover `compose.ia*.yml` da infra | — | EM ANDAMENTO (Sessão 02/feature-esqueleto, 2026-10-07) |
+| IA-05 | insider-ia | P1 | Conjunto de avaliação exportado de `opiniao_ia` (315 dossiês de 2026-10-06) e métrica no CI | IA-01 | EM ANDAMENTO (Sessão 02/feature-esqueleto, 2026-10-07) |
+| IA-02/03/04/06 | insider-ia + gerar-insights | P1 | Portar modelo/validador/reserva (contrato com `permitidas` e `risco_calculado`), gerar-insights passa a chamar `POST /opiniao`, skills, casos de PETR4 | IA-01, IA-05 | PLANEJADO (Sessão 02) |
+| IA-07/08/12 | insider-ia | P2 | Fichas de evidência, setor, ativos e mercado; agendamento na rotina da manhã | DEC-IA-05 (job lê o MySQL) | PLANEJADO (Sessão 03) |
+| IA-14 | gestor+painel | P2 | Aceitar `trecho_id` em `justificativa_json` e mostrar fontes no cartão de opinião (sem migration, DEC-IA-03) | IA-11 | PLANEJADO (Sessão 01) |
+| IA-10/11/13 | insider-ia | P2 | RAG e orquestrador com trechos (adiado até as fichas provarem valor); modelo 7b só com GPU maior | IA-07/08 | PLANEJADO |
 | TASK-OPI-1 | gestor+painel | P1 | Expor a opinião por horizonte (`opiniao_ia`, V22, gerada pelo gerar-insights): `GET /ativos/{s}/opiniao` (pregão mais recente; por horizonte, linha do modelo local senão a de regra; aviso fixo) e cartão "Opinião por horizonte" na aba Resumo da ficha (3 horizontes, cor sempre com texto, selo Experimental, justificativa, o que invalida, origem) | V22, `app/opiniao` (Sessão 02) | IMPLEMENTADO (2026-10-07, gestor `ec382a3`/`9f43b6f`, painel `2453cfc`; falta reimplantar o gestor) |
 | TASK-E09 | etl | P2 | Agendar `--comunicados` (a rotina da manhã já o chama — confirmar e fechar) | — | VERIFICADO (Sessão 03, 2026-10-07): `scripts/cargas-etl.ps1` linha 28, passo `comunicados (IPE)` = `--comunicados`, primeiro da rotina |
 
