@@ -50,3 +50,36 @@ jobs:
             } else {
               console.log(`ℹ️ PR já existe: #${prs.data[0].number}`);
             }
+
+  terraform-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Terraform fmt
+        run: |
+          docker run --rm --entrypoint terraform \
+            -v ${{ github.workspace }}/infra:/infra \
+            -w /infra \
+            hashicorp/terraform:latest \
+            fmt -check -recursive
+
+      - name: Terraform init
+        run: |
+          docker run --rm --entrypoint terraform \
+            -v ${{ github.workspace }}/infra:/infra \
+            -w /infra \
+            hashicorp/terraform:latest \
+            init -backend=false
+
+      - name: Terraform validate
+        run: |
+          docker run --rm --entrypoint terraform \
+            -v ${{ github.workspace }}/infra:/infra \
+            -w /infra \
+            hashicorp/terraform:latest \
+            validate
