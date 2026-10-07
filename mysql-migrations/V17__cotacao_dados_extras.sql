@@ -1,8 +1,7 @@
 -- V17__cotacao_dados_extras.sql
--- TASK-E10: numero de negocios por pregao (TOTNEG, posicoes 148-152 do COTAHIST).
--- O LeitorCotahist e o CandleB3 ja carregavam o campo; faltava so a coluna.
-ALTER TABLE cotacao_b3_diaria
-    ADD COLUMN numero_negocios INT NULL AFTER volume_financeiro;
+-- TASK-E10: numero_negocios NAO entra aqui - a coluna existe desde a V1
+-- (cotacao_b3_diaria); um ADD COLUMN falharia com "Duplicate column" e
+-- travaria o db-migrate. Falta so o ETL grava-la (TASK-E10).
 
 -- TASK-E11: ISIN (CODISI, posicoes 231-242 do COTAHIST; Codigo_ISIN do FCA).
 -- Permite resolver renomeacoes de ticker de forma canonica e cruzar com bases
