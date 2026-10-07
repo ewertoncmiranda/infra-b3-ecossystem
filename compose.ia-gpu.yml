@@ -1,0 +1,12 @@
+# Reserva a GPU NVIDIA para o Ollama. Some depois de compose.ia.yml:
+#   docker compose -f docker-compose-local.yml -f compose.ia.yml -f compose.ia-gpu.yml --profile ia up -d ollama
+# Falha com "no adapters were found" quando o Docker nao enxerga a GPU (driver/WSL2).
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

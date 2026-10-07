@@ -1,0 +1,46 @@
+# Opiniao por horizonte com modelo local (Ollama). Camada opcional sobre o compose local:
+#
+#   docker compose -f docker-compose-local.yml -f compose.ia.yml --profile ia up -d ollama
+#   docker compose -f docker-compose-local.yml -f compose.ia.yml exec ollama ollama pull qwen2.5:1.5b-instruct
+#   docker compose -f docker-compose-local.yml -f compose.ia.yml run --rm --no-deps gerar-insights \
+#       python -m app.opiniao.gerar
+#
+# Fora do `up` normal (profile "ia"). Por padrao roda na CPU (funciona em qualquer maquina). Para
+# usar a GPU (2 GB comportam o modelo padrao de 1.5B, ~1 GB quantizado), some compose.ia-gpu.yml; isso
+# exige o driver NVIDIA com suporte a WSL2/CUDA visivel ao Docker (`docker run --gpus all ... nvidia-smi`).
+# Os modelos ficam no volume nomeado `ollama_models` (baixa uma vez). Porta so em 127.0.0.1 (11435 no host: 11434 costuma ser do Ollama instalado no Windows).
+services:
+  ollama:
+    image: ollama/ollama:0.40.0
+    container_name: ollama
+    profiles: ["ia"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11435:11434"
+    environment:
+      OLLAMA_KEEP_ALIVE: 10m
+      OLLAMA_MAX_LOADED_MODELS: 1
+      OLLAMA_NUM_PARALLEL: 1
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    networks:
+      - observability
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # O worker so ganha o endereco do Ollama; o job de opiniao roda com `run`.
+  gerar-insights:
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODELO: ${OLLAMA_MODELO:-qwen2.5:1.5b-instruct}
+
+volumes:
+  ollama_models:
