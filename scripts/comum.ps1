@@ -12,8 +12,27 @@ $ErrorActionPreference = 'Continue'
 $script:Infra = Split-Path -Parent $PSScriptRoot
 # Fora de infra-b3-ecossytem\logs de proposito: essa pasta e montada no
 # Logstash, que mantem os *.log abertos (no Windows isso bloqueia a escrita).
-$script:PastaLocal = Join-Path $env:LOCALAPPDATA 'b3-ecossistema'
-New-Item -ItemType Directory -Force -Path $script:PastaLocal | Out-Null
+# Fora de AppData tambem (TASK-E21): o app Claude e um pacote MSIX, e o que
+# um processo dele grava em %LOCALAPPDATA% vai para uma copia virtualizada
+# (Packages\Claude_*\LocalCache\Local) que a tarefa agendada nao ve - e a
+# leitura de dentro do app mistura as duas. %USERPROFILE% nao e virtualizado.
+$script:PastaLocal = Join-Path $env:USERPROFILE 'b3-ecossistema'
+$script:PastaAntiga = Join-Path $env:LOCALAPPDATA 'b3-ecossistema'
+New-Item -ItemType Directory -Force -Path (Join-Path $script:PastaLocal 'backups') | Out-Null
+
+# Uma vez so (a marca impede que a rotacao seja desfeita na proxima carga):
+# traz os backups da pasta antiga (AppData) para a nova, sem sobrescrever.
+# Logs nao: de dentro do app a copia virtual (velha) esconde a real, e log e
+# so historico - os antigos continuam em %LOCALAPPDATA%\b3-ecossistema.
+$marcaMigracao = Join-Path $script:PastaLocal 'backups\.migrado-de-appdata'
+$backupsAntigos = Join-Path $script:PastaAntiga 'backups'
+if (-not (Test-Path $marcaMigracao) -and (Test-Path $backupsAntigos)) {
+    Get-ChildItem $backupsAntigos -Filter 'minha_base_*.sql.gz' -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $destino = Join-Path $script:PastaLocal "backups\$($_.Name)"
+        if (-not (Test-Path $destino)) { Copy-Item $_.FullName $destino }
+    }
+    Set-Content -Path $marcaMigracao -Value (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+}
 
 function Escrever-Log([string]$Arquivo, [string]$Texto) {
     $agora = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'

@@ -3,8 +3,8 @@
 # conferido tabela a tabela antes de contar como sucesso.
 #
 # Registrar: scripts\registrar-rotinas.ps1
-# Arquivos:  %LOCALAPPDATA%\b3-ecossistema\backups\minha_base_AAAA-MM-DD_HHmm.sql.gz (guarda 14)
-# Log:       %LOCALAPPDATA%\b3-ecossistema\backup-mysql.log
+# Arquivos:  %USERPROFILE%\b3-ecossistema\backups\minha_base_AAAA-MM-DD_HHmm.sql.gz (guarda 14)
+# Log:       %USERPROFILE%\b3-ecossistema\backup-mysql.log
 #
 # Restaurar de verdade (APAGA o estado atual do banco):
 #   Get-Content -Encoding Byte -ReadCount 0 <arquivo> | docker exec -i mysql sh -c `
@@ -25,6 +25,10 @@ function Falhar([string]$motivo) {
 }
 
 Escrever-Log $log 'inicio'
+# 0. Docker recem-ligado (PC ligado depois das 12:30, StartWhenAvailable):
+# sem esperar a stack, o mysqldump falha (2026-10-04, TASK-E21).
+if (-not (Garantir-Stack)) { Falhar 'stack nao ficou pronta (Garantir-Stack)' }
+
 # 1. dump consistente (InnoDB) dentro do container, comprimido
 docker exec mysql sh -c 'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers --no-tablespaces "$MYSQL_DATABASE" 2>/dev/null | gzip > /tmp/backup.sql.gz' | Out-Null
 if ($LASTEXITCODE -ne 0) { Falhar 'mysqldump' }
@@ -54,8 +58,9 @@ Executar-Sql 'DROP DATABASE IF EXISTS restauracao_teste;' | Out-Null
 docker exec mysql rm -f /tmp/backup.sql.gz
 if ($divergentes.Count -gt 0) { Falhar ("restauracao divergente: " + ($divergentes -join '; ')) }
 
-# 3. rotacao
-Get-ChildItem $pasta -Filter 'minha_base_*.sql.gz' | Sort-Object Name -Descending | Select-Object -Skip $MANTER |
+# 3. rotacao (so os diarios, minha_base_AAAA-...; dumps nomeados como o
+# minha_base_pre-V16_* ficam fora da conta e nunca sao apagados)
+Get-ChildItem $pasta -Filter 'minha_base_20*.sql.gz' | Sort-Object Name -Descending | Select-Object -Skip $MANTER |
     Remove-Item -Force
 
 $tamanho = [Math]::Round((Get-Item $arquivo).Length / 1MB, 1)

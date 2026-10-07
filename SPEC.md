@@ -83,9 +83,9 @@ Estados: `PLANEJADO` · `EM ANDAMENTO (agente/branch, data)` · `IMPLEMENTADO` �
 | ID | Repo | Pri | Tarefa | Depende | Estado |
 |---|---|---|---|---|---|
 | T-INFRA-01 | infra | P0 | Commitar o que está solto: `mysql-migrations/V1__baseline.sql`, remoção de `mysql-init/1 - schema.sql`, `contracts/`, `scripts/sincronizar-contratos.mjs`, `compose.contract-tests.yml`, `infra/s3/main.tf` — pertencem à sessão de contratos; **perguntar antes** | — | PLANEJADO |
-| T-INFRA-02 / TASK-E20 | infra | P1 | Registrar fora do sandbox a tarefa "ao logon +5 min" da rotina da manhã; `StartWhenAvailable` na rotina e no backup (ISS-E15 do ETL) | Frente A | EM ANDAMENTO (Sessão 03/feature-nova-infra, 2026-10-07) |
-| TASK-E21 | infra | P1 | Logs/backups fora da virtualização MSIX do app Claude; dump pré-V16 para a pasta real; `Garantir-Stack` no backup (ISS-E16 do ETL) | — | EM ANDAMENTO (Sessão 03/feature-nova-infra, 2026-10-07) |
-| TASK-E19 | etl | P1 | Nova tentativa no `ClienteHttpCvm` (ISS-E14) | — | EM ANDAMENTO (Sessão 03/feature-comunicados-cvm, 2026-10-07) — código já entregue em 3dd1687 (Codex); conferindo aceite |
+| T-INFRA-02 / TASK-E20 | infra | P1 | Registrar fora do sandbox a tarefa "ao logon +5 min" da rotina da manhã; `StartWhenAvailable` na rotina e no backup (ISS-E15 do ETL) | Frente A | BLOQUEADO (script pronto; o usuário precisa rodar `scriptsegistrar-rotinas.ps1` num PowerShell fora do app Claude — Sessão 03, 2026-10-07) |
+| TASK-E21 | infra | P1 | Logs/backups fora da virtualização MSIX do app Claude; dump pré-V16 para a pasta real; `Garantir-Stack` no backup (ISS-E16 do ETL) | — | IMPLEMENTADO (Sessão 03, 2026-10-07): pasta em `%USERPROFILE%3-ecossistema`; dump pré-V16 copiado e conferido (descompacta até "Dump completed"); backup chama `Garantir-Stack`; rotação ignora dumps nomeados. Falta ver um backup agendado gravar na pasta nova |
+| TASK-E19 | etl | P1 | Nova tentativa no `ClienteHttpCvm` (ISS-E14) | — | IMPLEMENTADO (3dd1687 Codex + 6ed1929 UP038, Sessão 03, 2026-10-07): retry 5 s/15 s só para 5xx/429/timeout/conexão; `ClienteHttpB3` herda |
 | T-INFRA-03 | infra | P1 | Publicar imagens `develop` atualizadas e conferir que `etl` tem `--conciliar` e `--proventos` | — | PLANEJADO |
 | LAC-INFRA-2 | infra+etl | P1 | Classificar `setor_grupo` (hoje tudo `A_CLASSIFICAR`) | V16 | EM ANDAMENTO (Sessão 03/feature-nova-infra, 2026-10-07) |
 | LAC-INFRA-3 | infra | P1 | Script de backfill (DFP 2010–15, ITR 2011–23, COTAHIST 2009–15) | LAC-ETL-3/4 | PLANEJADO |
@@ -96,7 +96,7 @@ Estados: `PLANEJADO` · `EM ANDAMENTO (agente/branch, data)` · `IMPLEMENTADO` �
 | LAC-FE-1..4 | painel | P1 | Placar por ranking, cartão Fatores, proventos DVA, saúde com novas fontes | LAC-GES | IMPLEMENTADO (2026-10-07, painel; falta reimplantar o gestor e validar com dados reais) |
 | TASK-UX-5 | gestor | P2 | `GET` de listagem de ativos para o painel (favoritos + base): símbolo, empresa, setor, preço e variação, série curta para sparkline, sinal atual, último comunicado e flags de qualidade, paginado e filtrável por favorito/setor. Destrava a tabela única do painel (REQ-UX-8) | — | EM ANDAMENTO (Sessão 01/feature-teste, 2026-10-07) |
 | TASK-UX-6 | painel | P2 | Tabela única de ativos no painel e remoção das listas redundantes (Base, Favoritos, Setores, Monitorados) | TASK-UX-5 | EM ANDAMENTO (Sessão 01/feature-comunicados-cvm, 2026-10-07) |
-| TASK-E09 | etl | P2 | Agendar `--comunicados` (a rotina da manhã já o chama — confirmar e fechar) | — | EM ANDAMENTO (Sessão 03/feature-nova-infra, 2026-10-07) |
+| TASK-E09 | etl | P2 | Agendar `--comunicados` (a rotina da manhã já o chama — confirmar e fechar) | — | VERIFICADO (Sessão 03, 2026-10-07): `scripts/cargas-etl.ps1` linha 28, passo `comunicados (IPE)` = `--comunicados`, primeiro da rotina |
 
 A fila completa histórica (TASK-01..45, ISS-, INT-) continua nas seções 6–7 e nos SPECs dos serviços; esta tabela só lista o que está aberto **agora**.
 
@@ -112,6 +112,7 @@ Flyway é o único dono do schema; migration aplicada não se edita. Cada tabela
 
 | Data | Agente | Repo | O que mudou / o que fica pendente |
 |---|---|---|---|
+| 2026-10-07 | Claude (Sessão 03) | infra, etl | E19/E09 fechadas; E21: logs e backups em `%USERPROFILE%3-ecossistema` (os logs antigos ficam em AppData; dentro do app a cópia virtual esconde a real); E20: `registrar-rotinas.ps1` com `StartWhenAvailable` + logon +5 min — **o usuário roda:** `powershell -NoProfile -ExecutionPolicy Bypass -File scriptsegistrar-rotinas.ps1` fora do app. V17 corrigida (0b8b6ce) e V17–V20 aplicadas. Backup de 07-10 saiu 0x1 pela 2ª passada do ETL (ISS-E13) |
 | 2026-10-04 | Claude (sessão infra/gestor) | todos | Refatoração dos 5 SPECs: seção 1A (hub) e blocos "Coordenação". Pendente: confirmar com o dono da sessão de contratos o commit dos arquivos soltos (T-INFRA-01); podar seções históricas |
 | 2026-10-03 | Claude (sessão infra/gestor) | infra, gestor | V15/V16 aplicadas, Flyway reparado, LAC-GES-1..4, Frente A, restart policies; pushes feitos |
 | 2026-09-30 | Sessões 01/03 | todos | Plano LAC proposto; ETL/insights LAC implementados; ver commits `f9832b0`, `8e9e159` |

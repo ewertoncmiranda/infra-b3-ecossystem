@@ -5,7 +5,7 @@
 # nunca mais as 20h/21h30 do pregao anterior (D2: nada de insight preliminar
 # com a brapi - so com o preco oficial do COTAHIST).
 #
-# Registrar: scripts\registrar-rotinas.ps1. Log: %LOCALAPPDATA%\b3-ecossistema\cargas-etl.log
+# Registrar: scripts\registrar-rotinas.ps1. Log: %USERPROFILE%\b3-ecossistema\cargas-etl.log
 #
 # Cada carga compara o ETag antes de baixar: arquivo sem novidade custa uma
 # requisicao HEAD. Com a CVM fora do ar, o ETL segue com o cache e avisa.
@@ -65,7 +65,7 @@ foreach ($nome in $passos.Keys) {
 }
 
 if ($falhas.Count -gt 0) {
-    $texto = "rotina da manha: falhas em $($falhas -join ', '). Log: $env:LOCALAPPDATA\b3-ecossistema\$log"
+    $texto = "rotina da manha: falhas em $($falhas -join ', '). Log: $(Join-Path $script:PastaLocal $log)"
     if (-not (Enviar-Alerta $texto)) { Escrever-Log $log 'alerta nao enviado (Telegram nao configurado)' }
     exit 1
 }
