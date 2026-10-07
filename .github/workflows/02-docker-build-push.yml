@@ -39,22 +39,8 @@ jobs:
             type=raw,value=develop
             type=raw,value=latest
 
-      - name: Start terraform
-        run: |
-          docker run --rm --entrypoint terraform \
-            -v ${{ github.workspace }}/infra:/infra \
-            -w /infra \
-            hashicorp/terraform:latest \
-            init -backend=false
-
-      - name: Validate Terraform config
-        run: |
-          docker run --rm --entrypoint terraform \
-            -v ${{ github.workspace }}/infra:/infra \
-            -w /infra \
-            hashicorp/terraform:latest \
-            validate
-
+      # Sem fmt/validate do Terraform na esteira (decisao de 2026-10-07: so
+      # testes unitarios bloqueiam; a infra nao tem teste unitario).
       - name: Build and push to Docker Hub
         uses: docker/build-push-action@v5
         with:
