@@ -28,7 +28,7 @@ $passos = [ordered]@{
     'comunicados (IPE)'        = $etl + @('--comunicados')
     # Balancos da camada Base inteira (universo liquido + cadastrados).
     'fundamentos (DFP)'        = $etl + @('--ano', "$($ano - 1)", '--ano', "$ano", '--universo-backtest')
-    'ultimos 12 meses (TTM)'   = $etl + @('--ttm', '--ano', "$ano")
+    'ultimos 12 meses (TTM)'   = $etl + @('--ttm', '--ano', "$ano", '--universo-backtest')
     'preco oficial (COTAHIST)' = $etl + @('--cotahist', '--ano', "$ano")
     # Conciliacao brapi x COTAHIST (D4/C3): le vw_conciliacao_preco (V15) e
     # registra CONCILIACAO_BRAPI_B3 em etl_execucao. Sai 3 quando ha
