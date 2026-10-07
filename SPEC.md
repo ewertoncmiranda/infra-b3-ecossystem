@@ -95,7 +95,7 @@ egistrar-rotinas.ps1` num PowerShell fora do app Claude — Sessão 03, 2026-10-
 | LAC-INS-* | insights | P1 | Entregues 1..9 (8e9e159); falta rodar contra dados reais após backfill | LAC-ETL | EM ANDAMENTO |
 | LAC-GES-1..4 | gestor | P1 | Entregues (f548f97) | V16 | IMPLEMENTADO |
 | LAC-FE-1..4 | painel | P1 | Placar por ranking, cartão Fatores, proventos DVA, saúde com novas fontes | LAC-GES | IMPLEMENTADO (2026-10-07, painel; falta reimplantar o gestor e validar com dados reais) |
-| TASK-UX-5 | gestor | P2 | `GET` de listagem de ativos para o painel (favoritos + base): símbolo, empresa, setor, preço e variação, série curta para sparkline, sinal atual, último comunicado e flags de qualidade, paginado e filtrável por favorito/setor. Destrava a tabela única do painel (REQ-UX-8) | — | EM ANDAMENTO (Sessão 01/feature-teste, 2026-10-07) |
+| TASK-UX-5 | gestor | P2 | `GET` de listagem de ativos para o painel (favoritos + base): símbolo, empresa, setor, preço e variação, série curta para sparkline, sinal atual, último comunicado e flags de qualidade, paginado e filtrável por favorito/setor. Destrava a tabela única do painel (REQ-UX-8) | — | IMPLEMENTADO (2026-10-07, `GET /painel/ativos`, gestor `bef0ab0`; falta reimplantar o gestor) |
 | TASK-UX-6 | painel | P2 | Tabela única de ativos no painel e remoção das listas redundantes (Base, Favoritos, Setores, Monitorados) | TASK-UX-5 | EM ANDAMENTO (Sessão 01/feature-comunicados-cvm, 2026-10-07) |
 | TASK-E09 | etl | P2 | Agendar `--comunicados` (a rotina da manhã já o chama — confirmar e fechar) | — | VERIFICADO (Sessão 03, 2026-10-07): `scripts/cargas-etl.ps1` linha 28, passo `comunicados (IPE)` = `--comunicados`, primeiro da rotina |
 
@@ -113,6 +113,7 @@ Flyway é o único dono do schema; migration aplicada não se edita. Cada tabela
 
 | Data | Agente | Repo | O que mudou / o que fica pendente |
 |---|---|---|---|
+| 2026-10-07 | Claude (Sessão 01) | gestor | TASK-UX-5: `GET /painel/ativos?q=&setor=&favoritos=&monitorados=&pagina=&tamanho=` (máx. 100) — base ∪ monitorados, fechamento COTAHIST, variação, 20 fechamentos para sparkline, último insight (`sinal` com `versaoRegra`), último comunicado e selos (`favorito`, `monitorado`, `temFundamento`, `pregaoDefasado`); 2 consultas por página; SQL validado no MySQL local (250/8/36). Commitado por sessão Codex em `bef0ab0`. Pendente: reimplantar o gestor; painel precisa liberar `/painel` no `proxy/apiProxy.js` (TASK-UX-6) |
 | 2026-10-07 | Claude (Sessão 03) | infra, etl | E19/E09 fechadas; E21: logs e backups em `%USERPROFILE%3-ecossistema` (os logs antigos ficam em AppData; dentro do app a cópia virtual esconde a real); E20: `registrar-rotinas.ps1` com `StartWhenAvailable` + logon +5 min — **o usuário roda:** `powershell -NoProfile -ExecutionPolicy Bypass -File scripts
 egistrar-rotinas.ps1` fora do app. V17 corrigida (0b8b6ce) e V17–V20 aplicadas. Backup de 07-10 saiu 0x1 pela 2ª passada do ETL (ISS-E13) |
 | 2026-10-04 | Claude (sessão infra/gestor) | todos | Refatoração dos 5 SPECs: seção 1A (hub) e blocos "Coordenação". Pendente: confirmar com o dono da sessão de contratos o commit dos arquivos soltos (T-INFRA-01); podar seções históricas |
