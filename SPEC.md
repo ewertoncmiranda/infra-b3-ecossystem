@@ -100,7 +100,7 @@ Estados: `PLANEJADO` · `EM ANDAMENTO (agente/branch, data)` · `IMPLEMENTADO` �
 | IA-01 | insider-ia | P1 | Esqueleto do serviço de IA (FastAPI, Dockerfile, compose.ia com duas redes, CI); remover `compose.ia*.yml` da infra | — | IMPLEMENTADO (2026-10-07; `compose.ia*.yml` agora no repo insider-ia e removidos da infra) |
 | IA-05 | insider-ia | P1 | Conjunto de avaliação exportado de `opiniao_ia` (315 dossiês de 2026-10-06) e métrica no CI | IA-01 | EM ANDAMENTO (Sessão 02/feature-esqueleto, 2026-10-07) |
 | IA-02 | insider-ia | P1 | Portar modelo/validador/reserva (contrato com `permitidas` e `risco_calculado`) | IA-01 | Entregue em `8e16bf3` (Sessão 02): fechar o status; pendência residual passa à Sessão 03 |
-| IA-03 | gerar-insights | P1 | `gerar-insights` passa a chamar `POST /opiniao` (`IA_URL` já no compose) em vez do Ollama; prompt sai do worker | IA-02 | PLANEJADO (Sessão 01, delegado pelo usuário em 2026-10-08) |
+| IA-03 | gerar-insights | P1 | `gerar-insights` passa a chamar `POST /opiniao` (`IA_URL` já no compose) em vez do Ollama; prompt sai do worker | IA-02 | EM ANDAMENTO (Sessão 01/feature-migrate, 2026-10-08) |
 | IA-04 | insider-ia | P1 | Prompt atual vira skills (`skills/`) | IA-02 | PLANEJADO (Sessão 02, delegado pelo usuário em 2026-10-08) |
 | IA-06 | insider-ia | P1 | Casos de PETR4/2026-10-06 cobertos no validador | IA-02 | PLANEJADO (Sessão 03, delegado pelo usuário em 2026-10-08) |
 | IA-07/08/12 | insider-ia + infra | P2 | Fichas de evidência, setor, ativos e mercado; agendamento na rotina da manhã; usuário MySQL só leitura `leitor_ia` (script da rotina, senha fora do git) | DEC-IA-05 (job lê o MySQL) | EM ANDAMENTO (Sessão 03/feature-esqueleto, 2026-10-07) |
