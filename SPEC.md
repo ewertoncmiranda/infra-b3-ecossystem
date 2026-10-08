@@ -105,7 +105,7 @@ Estados: `PLANEJADO` · `EM ANDAMENTO (agente/branch, data)` · `IMPLEMENTADO` �
 | IA-06 | insider-ia | P1 | Casos de PETR4/2026-10-06 cobertos no validador | IA-02 | PLANEJADO (Sessão 03, delegado pelo usuário em 2026-10-08) |
 | IA-07/08/12 | insider-ia + infra | P2 | Fichas de evidência, setor, ativos e mercado; agendamento na rotina da manhã; usuário MySQL só leitura `leitor_ia` (script da rotina, senha fora do git) | DEC-IA-05 (job lê o MySQL) | EM ANDAMENTO (Sessão 03/feature-esqueleto, 2026-10-07) |
 | IA-09 | insider-ia | P2 | Fichas de fundamentos (glossário/fórmulas do painel, PDFs de estudo) | — | PLANEJADO (Sessão 03, delegado pelo usuário em 2026-10-08) |
-| IA-10 | insider-ia | P2 | Indexador incremental do RAG + busca com filtro de ponto no tempo (não mais adiado) | IA-07/08 | PLANEJADO (Sessão 03, delegado pelo usuário em 2026-10-08); desbloqueia IA-11 |
+| IA-10 | insider-ia | P2 | Indexador incremental do RAG + busca com filtro de ponto no tempo (não mais adiado) | IA-07/08 | IMPLEMENTADO (Sessão 03, 2026-10-08, insider-ia `fa7badb`): 4.530 trechos, filtro de ponto no tempo por trecho; só textual até baixar `nomic-embed-text`. IA-11 desbloqueada |
 | IA-11 | insider-ia | P2 | Orquestrador monta o contexto e cita `trecho_id` | IA-10 | PLANEJADO (Sessão 02, delegado pelo usuário em 2026-10-08) |
 | IA-13 | insider-ia | P3 | Modelo 7b com GPU maior, comparado no conjunto de avaliação | IA-05 | PLANEJADO (Sessão 03, delegado pelo usuário em 2026-10-08) |
 | IA-14 | gestor+painel | P2 | Aceitar `trecho_id` em `justificativa_json` e mostrar fontes no cartão de opinião (sem migration, DEC-IA-03) | IA-11 | PLANEJADO (Sessão 02, delegado pelo usuário em 2026-10-08; antes Sessão 01) |
