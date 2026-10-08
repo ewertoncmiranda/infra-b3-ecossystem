@@ -25,6 +25,10 @@ COPY --chown=terraform:terraform entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh && \
     chmod -R 755 /infra
 
+# Estado do Terraform fica num volume montado aqui (compose). Criado com o dono
+# certo para que um volume novo herde a permissao do usuario terraform.
+RUN mkdir -p /estado && chown terraform:terraform /estado
+
 USER terraform
 
 # Inicializa Terraform para baixar e armazenar em cache os provedores

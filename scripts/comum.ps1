@@ -189,3 +189,26 @@ function Garantir-Stack {
     Registrar-Execucao 'GARANTIR_STACK' 'SUCESSO'
     return $true
 }
+
+# Usuario MySQL so de leitura para o job de fichas do insider-ia (DEC-IA-05,
+# TASK-IA-12). Fora do Flyway de proposito: placeholder de senha ausente
+# derrubaria o db-migrate e a stack inteira. A senha e gerada uma vez e fica
+# em %USERPROFILE%\b3-ecossistema\leitor_ia.senha (fora de qualquer git).
+# Idempotente: CREATE USER IF NOT EXISTS + ALTER (mantem a senha do arquivo)
+# + GRANT SELECT. Devolve a senha, ou $null se o MySQL nao respondeu.
+function Garantir-UsuarioLeitura {
+    $arquivo = Join-Path $script:PastaLocal 'leitor_ia.senha'
+    if (-not (Test-Path $arquivo)) {
+        $bytes = New-Object byte[] 24
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+        $nova = ([Convert]::ToBase64String($bytes) -replace '[^A-Za-z0-9]', '').Substring(0, 24)
+        Set-Content -Path $arquivo -Value $nova -NoNewline -Encoding ascii
+    }
+    $senha = (Get-Content $arquivo -Raw).Trim()
+    $sql = "CREATE USER IF NOT EXISTS 'leitor_ia'@'%' IDENTIFIED BY '$senha'; " +
+        "ALTER USER 'leitor_ia'@'%' IDENTIFIED BY '$senha'; " +
+        "GRANT SELECT ON minha_base.* TO 'leitor_ia'@'%'; FLUSH PRIVILEGES; SELECT 'ok';"
+    $saida = $sql | docker exec -i mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N 2>/dev/null'
+    if (($saida | Select-Object -Last 1) -ne 'ok') { return $null }
+    return $senha
+}
