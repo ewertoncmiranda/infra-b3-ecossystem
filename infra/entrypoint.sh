@@ -61,6 +61,11 @@ log_error() {
 log_info "Iniciando fluxo de provisionamento Terraform"
 log_info "Diretório de trabalho: $(pwd)"
 log_info "Versão Terraform: $(terraform version -json | jq -r '.terraform_version')"
+STATE_ARGS=()
+if [[ -n "${TF_STATE_PATH:-}" ]]; then
+    STATE_ARGS=(-state="${TF_STATE_PATH}")
+    log_info "Estado local configurado em ${TF_STATE_PATH}"
+fi
 
 # Validar variáveis de ambiente obrigatórias
 if [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]; then
@@ -93,14 +98,14 @@ log_success "Validação de configuração Terraform aprovada"
 
 # Gerar e revisar plano de execução
 log_info "Planejando mudanças de infraestrutura"
-if ! terraform plan -out=tfplan -no-color; then
+if ! terraform plan "${STATE_ARGS[@]}" -out=tfplan -no-color; then
     log_error "Falha na geração do plano Terraform"
 fi
 log_success "Plano Terraform gerado com sucesso"
 
 # Aplicar mudanças de infraestrutura
 log_info "Aplicando configuração de infraestrutura"
-if ! terraform apply -no-color -auto-approve tfplan; then
+if ! terraform apply "${STATE_ARGS[@]}" -no-color -auto-approve tfplan; then
     log_error "Falha na operação de aplicação Terraform"
 fi
 log_success "Provisionamento de infraestrutura concluído com sucesso"
@@ -120,4 +125,3 @@ log_success "Fluxo de provisionamento Terraform concluído"
 rm -f tfplan
 
 exit 0
-

@@ -1,4 +1,4 @@
-FROM hashicorp/terraform:latest
+FROM hashicorp/terraform:1.9.8
 
 LABEL maintainer="Equipe DevOps"
 LABEL description="Provisionador de Infraestrutura como Código para Ecossistema de Monitoramento B3"

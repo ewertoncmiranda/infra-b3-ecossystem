@@ -177,33 +177,33 @@ Infra/Flyway -> schema MySQL (único executor de migrations)
 | Serviço | Imagem | Portas host | Depende de | Observações |
 |---|---|---|---|---|
 | localstack | `localstack/localstack:3.3` | 4566 | — | `SERVICES=sqs,s3,sns`, `DEBUG=1`, volume sem `PERSISTENCE` (estado efêmero) |
-| my-terraform-provisioner | `ewertonmiranda/infra-b3-ecossystem:latest` | — | localstack healthy | `entrypoint` sobrescrito para `terraform init && apply` (ignora o `entrypoint.sh`, ver `ISS-06`) |
+| my-terraform-provisioner | build local de `./infra` | — | localstack healthy | Usa o `entrypoint.sh` da imagem; estado persistido em `/estado/terraform.tfstate` via `TF_STATE_PATH` |
 | mysql | `mysql:8.0` | 3305→3306 | — | Flyway cria e evolui o schema após healthcheck |
-| gestor-ativos-brutos | `ewertonmiranda/gestor-ativos-brutos:latest` | 8091 | mysql, localstack, provisioner | `SPRING_PROFILES_ACTIVE=dev`, chaves via `${BRAPI_API_KEY}`/`${GEMINI_API_KEY}` |
-| gerar-insights | `ewertonmiranda/gerar-insights:latest` | 8080 | mysql, localstack, provisioner | Porta 8080 exposta, mas **não há servidor HTTP** (`ISS-08`) |
+| gestor-ativos-brutos | `ewertonmiranda/gestor-ativos-brutos:${B3_IMAGEM_TAG:-develop}` | 8091 | mysql, localstack, provisioner | `SPRING_PROFILES_ACTIVE=dev`, chaves via `${BRAPI_API_KEY}`/`${GEMINI_API_KEY}` |
+| gerar-insights | `ewertonmiranda/gerar-insights:${B3_IMAGEM_TAG:-develop}` | 8080 | mysql, localstack, provisioner | Porta 8080 exposta, mas **não há servidor HTTP** (`ISS-08`) |
 | elasticsearch | `elasticsearch:8.14.0` | 9200 | — | `xpack.security.enabled=false`, heap 512 MB |
 | logstash | `logstash:8.14.0` | 5000 tcp/udp | elasticsearch | Lê `./logs/**/*.log` com codec JSON + TCP JSON |
 | kibana | `kibana:8.14.0` | 5601 | elasticsearch | — |
-| prometheus | `prom/prometheus:latest` | 9090 | — | Faz scrape de `gestor:8091/actuator/prometheus` e `gerar-insights:8080` |
-| grafana | `grafana/grafana:latest` | 3000 | prometheus | `admin/admin` |
+| prometheus | `prom/prometheus:v2.53.1` | 9090 | — | Faz scrape de `gestor:8091/actuator/prometheus` e `gerar-insights:8080` |
+| grafana | `grafana/grafana:11.1.0` | 3000 | prometheus | `admin/admin` |
 
-### 3.2 `docker-compose-local.yml` (build local, não versionado)
-Variante mais enxuta (sem observabilidade) que faz build a partir de `./gestor-ativos-brutos` e `./gerar-insights`. Esses caminhos **não existem** dentro deste repositório (os projetos são pastas irmãs), então o build falha (`ISS-04`). O arquivo contém **chaves reais** da BRAPI e do Gemini (`ISS-01`).
+### 3.2 `docker-compose-local.yml` e `compose.build-local.yml`
+`docker-compose-local.yml` é a variante mais enxuta para usar imagens publicadas. Para testar código dos repositórios irmãos, acrescente `compose.build-local.yml`, que aponta para `../gestor-ativos-brutos/gestor-ativos-brutos`, `../gerar-insights/gerar-insights`, `../etl-fundamentos-cvm` e `../painel-ativos-frontend`. O arquivo local ainda contém chaves reais da BRAPI e do Gemini (`ISS-01`), que devem ser tratadas fora deste lote.
 
 ### 3.3 Terraform (`infra/`)
 - Provider AWS `~> 5.0` apontado para o LocalStack (`s3_use_path_style`, validações puladas).
-- Módulos: `sqs` (3 filas: `tratar-ativos`, `sqs-iniciar-treinamento`, `sqs-registrar-series-historicas`), `s3` (`bucket-salvar-insights`, versionamento desligado, acesso público bloqueado, `force_destroy`), `sns` (`transmitir-lote-dados`).
+- Módulos: `sqs` (4 filas: `tratar-ativos`, `sqs-registrar-series-historicas`, `sqs-fundamentos-atualizados`, `sqs-comunicados-publicados`), `s3` (`bucket-salvar-insights`, versionamento desligado, acesso público bloqueado, `force_destroy`), `sns` (`transmitir-lote-dados`).
 - Parâmetros de fila: `delay 0`, `max 256 KB`, `retenção 1 dia`, `long polling 10 s`. **Sem DLQ, sem `visibility_timeout` explícito (padrão 30 s), sem criptografia.**
-- `common_tags.CreatedAt = timestamp()` gera diff em todo `plan` (`ISS-10`).
-- Estado local (`terraform.tfstate` no disco, ignorado pelo git); no container, o estado é efêmero.
-- Imagem `infra/Dockerfile`: `hashicorp/terraform:latest` + aws-cli/jq, usuário não-root, `entrypoint.sh` com init → validate → plan → apply.
+- `common_tags` não usa timestamp dinâmico; o `plan` não muda apenas pela passagem do tempo.
+- Estado local (`terraform.tfstate` no disco, ignorado pelo git); no container, o estado fica em `/estado/terraform.tfstate` via `TF_STATE_PATH`.
+- Imagem `infra/Dockerfile`: `hashicorp/terraform:1.9.8` + aws-cli/jq, usuário não-root, `entrypoint.sh` com init → validate → plan → apply.
 
 ### 3.4 Schema MySQL (Flyway)
 `mysql-migrations/` é a fonte exclusiva: V1 cria a base em banco vazio; bancos existentes mantêm baseline 1; V2–V10 conservam checksums; V11 adiciona inbox. `db-migrate` termina antes dos serviços. O mount mysql-init foi removido.
 
 ### 3.5 CI (`.github/workflows`)
 - `01-feature-to-pr.yml`: abre PR `feature*` → `develop` automaticamente.
-- `02-docker-build-push.yml`: em push para `develop` roda `terraform init -backend=false` + `validate` e publica `infra-b3-ecossystem` com as tags `develop`, `latest`, `sha` etc.
+- `02-docker-build-push.yml`: em push para `develop` roda `terraform fmt -check -recursive`, `terraform init -backend=false` + `validate` e publica `infra-b3-ecossystem` com as tags `develop` e `sha`. A tag `latest` não é publicada nesse fluxo.
 - O mesmo padrão existe nos dois serviços, **sem testes** antes da publicação.
 
 ---
@@ -271,7 +271,7 @@ Variante mais enxuta (sem observabilidade) que faz build a partir de `./gestor-a
 | INT-05 | Médio | O gestor depende de campos de primeiro nível de `detalhes_json` que a spec do Python classificava como "legado" | `gestor: ConsolidadorAnaliseAcao.consolidarIndicadores` | Removê-los no Python quebra a análise de IA sem erro visível | Formalizados em CTR-03; `gerar-insights` não pode removê-los sem nova versão | PLANEJADO |
 | INT-06 | Médio | Observabilidade assimétrica: Python sem `/metrics` e com logs só em stdout (fora do ELK); Java loga em texto num arquivo lido como JSON **e** via TCP (duplicado) | `prometheus.yml`, `logstash.conf`, `gestor logback-spring.xml` | Target `gerar-insights` sempre *down*; logs duplicados ou quebrados no Kibana | Python: `prometheus_client` em :8080 + logs JSON; Java: JSON só via TCP; remover o input de arquivo **ou** padronizar arquivos JSON | PLANEJADO |
 | INT-07 | Médio | Timestamp da cotação perdido no contrato (`regularMarketTime`) | `gestor#ISS-07` | Impossível deduplicar por pregão ou ordenar corretamente | ISO-8601 UTC obrigatório em CTR-01 | PLANEJADO |
-| INT-08 | Baixo | Recursos provisionados sem uso: `sqs-iniciar-treinamento`, SNS `transmitir-lote-dados` | `infra/main.tf` | Ruído/confusão | Documentar o uso planejado (DEC-03) ou remover | PLANEJADO |
+| INT-08 | Baixo | Recursos provisionados sem uso: `sqs-iniciar-treinamento`, SNS `transmitir-lote-dados` | `infra/main.tf` | Ruído/confusão | `sqs-iniciar-treinamento` removida; SNS mantido como destino decidido para futuro evento pós-insight | IMPLEMENTADO (2026-10-08) |
 
 ### 6.2 Infraestrutura e Docker (`ISS-`)
 
@@ -280,15 +280,15 @@ Variante mais enxuta (sem observabilidade) que faz build a partir de `./gestor-a
 | ISS-01 | **Crítico** | Chaves reais BRAPI/Gemini em texto puro | `docker-compose-local.yml` (não versionado, mas sem proteção no `.gitignore`); também em `gestor/src/main/resources/application-test.properties` | Vazamento no primeiro `git add .` | Revogar e gerar novas chaves; mover para `.env` (listado no `.gitignore`) com `env_file`; adicionar `docker-compose-local.yml`/`.env` ao `.gitignore` ou usar só `${VAR}`; gitleaks no CI | PLANEJADO |
 | ISS-02 | Alto | Filas sem DLQ e sem `visibility_timeout`/`redrive_policy` | Módulo cria uma DLQ por fila, `maxReceiveCount=5`, retenção de 14 dias e visibilidade de 120 s | Mensagem venenosa é isolada | Validar no LocalStack após apply | IMPLEMENTADO (2026-09-26) |
 | ISS-03 | Alto | `mysql-init` só roda com volume vazio | Compose executa Flyway one-shot com migrations versionadas e o gestor valida o schema | Bancos existentes recebem as colunas e índices novos | Migração V2 é idempotente | IMPLEMENTADO (2026-09-26) |
-| ISS-04 | Alto | `docker-compose-local.yml` aponta para contextos de build inexistentes (`./gestor-ativos-brutos`, `./gerar-insights`) | `docker-compose-local.yml` | Ambiente de desenvolvimento local não sobe | `context: ../gestor-ativos-brutos/gestor-ativos-brutos` e `../gerar-insights/gerar-insights`, ou variável `ECOSYSTEM_ROOT`; usar `docker-compose.override.yml` para builds locais | PLANEJADO |
-| ISS-05 | Médio | Imagens `latest` (serviços, prometheus, grafana, terraform) e tag `latest` publicada a partir de `develop` | `docker-compose.yml`, workflows | Build não reproduzível; `develop` quebrado vira `latest` | Fixar versões/digests; `latest` só a partir de tag semver em `main` | PLANEJADO |
-| ISS-06 | Médio | O compose sobrescreve o `entrypoint.sh` do provisionador, pulando `validate`/`plan` e os logs estruturados | `docker-compose.yml` (`entrypoint: terraform init && apply`) | Perde as validações que a imagem oferece | Remover o override e usar o `ENTRYPOINT` da imagem | PLANEJADO |
+| ISS-04 | Alto | `docker-compose-local.yml` aponta para contextos de build inexistentes (`./gestor-ativos-brutos`, `./gerar-insights`) | `docker-compose-local.yml` | Ambiente de desenvolvimento local não sobe | `compose.build-local.yml` usa os contextos dos repositórios irmãos; compose local usa imagens publicadas por padrão | VERIFICADO (2026-10-08) |
+| ISS-05 | Médio | Imagens `latest` (serviços, prometheus, grafana, terraform) e tag `latest` publicada a partir de `develop` | `docker-compose.yml`, workflows | Build não reproduzível; `develop` quebrado vira `latest` | Compose usa tags explícitas ou `${B3_IMAGEM_TAG:-develop}`; workflow de develop não publica `latest` | IMPLEMENTADO (2026-10-08) |
+| ISS-06 | Médio | O compose sobrescreve o `entrypoint.sh` do provisionador, pulando `validate`/`plan` e os logs estruturados | `docker-compose.yml` (`entrypoint: terraform init && apply`) | Perde as validações que a imagem oferece | Override removido; `TF_STATE_PATH=/estado/terraform.tfstate` mantém estado persistente pelo entrypoint | IMPLEMENTADO (2026-10-08) |
 | ISS-07 | Médio | Credenciais e flags inseguras: Grafana `admin/admin`, Elasticsearch sem segurança, LocalStack `DEBUG=1`, MySQL `root/root`, todas as portas expostas no host | `docker-compose.yml` | Aceitável só em máquina local; perigoso se reaproveitado em servidor | Variáveis em `.env`; bind em `127.0.0.1:`; marcar o compose como "somente dev" | PLANEJADO |
 | ISS-08 | Médio | `gerar-insights` expõe 8080 e o Prometheus faz scrape dele, mas o worker não tem HTTP | `docker-compose.yml`, `prometheus.yml` | Target sempre *down*; porta enganosa | Implementar `/metrics` e `/health` no worker (INT-06) ou remover porta e job | PLANEJADO |
 | ISS-09 | Médio | Pilha pesada: ES + Logstash + Kibana + Prometheus + Grafana + 2 JVMs (≈ 3–4 GB RAM) sempre ligados | `docker-compose.yml` | Máquina de desenvolvimento lenta | Compose `profiles` (`core`, `observability`); `docker compose --profile observability up` quando necessário | PLANEJADO |
-| ISS-10 | Baixo | `CreatedAt = timestamp()` nas tags causa diff permanente | `infra/locals.tf` | `plan` nunca fica limpo | Remover a tag ou usar `lifecycle { ignore_changes = [tags["CreatedAt"]] }` | PLANEJADO |
-| ISS-11 | Baixo | Healthcheck do MySQL no compose local sem credenciais; `gestor` espera só `service_started` | `docker-compose-local.yml` | Java pode subir antes do banco estar pronto | Mesmo healthcheck do compose principal + `service_healthy` | PLANEJADO |
-| ISS-12 | Baixo | CI da infra publica imagem sem `terraform fmt -check`, tflint ou checkov | `.github/workflows/02-docker-build-push.yml` | Qualidade e segurança do IaC não verificadas | Adicionar fmt/tflint/checkov | PLANEJADO |
+| ISS-10 | Baixo | `CreatedAt = timestamp()` nas tags causa diff permanente | `infra/locals.tf` | `plan` nunca fica limpo | Tag removida | IMPLEMENTADO (2026-10-08) |
+| ISS-11 | Baixo | Healthcheck do MySQL no compose local sem credenciais; `gestor` espera só `service_started` | `docker-compose-local.yml` | Java pode subir antes do banco estar pronto | Compose local já usa `mysqladmin -uroot -proot` e `service_healthy`; SPEC reconciliada | VERIFICADO (2026-10-08) |
+| ISS-12 | Baixo | CI da infra publica imagem sem `terraform fmt -check`, tflint ou checkov | `.github/workflows/02-docker-build-push.yml` | Qualidade e segurança do IaC não verificada | Workflow bloqueia `fmt` e `validate`; tflint/checkov seguem como melhoria posterior por dependerem de política de segurança IaC | IMPLEMENTADO PARCIAL (2026-10-08) |
 | ISS-13 | Médio | Trabalho registrado no código nos **três** repositórios, em branches `feature-*` diferentes | `git status` de cada repo | Mudanças de contrato (série histórica, nova fila e tabela) podem ser integradas fora de ordem | Ordem de merge: infra (fila e tabela) → gerar-insights (consumidor) → gestor (produtor) | PLANEJADO |
 
 ---
@@ -303,7 +303,7 @@ Variante mais enxuta (sem observabilidade) que faz build a partir de `./gestor-a
 | TASK-25 | Série histórica longa via COTAHIST da B3, quebrando o teto de 3 meses da BRAPI | CTR-05 | infra, etl | Carga filtra ativos monitorados, divide preços por 100 e grava `fonte='B3'` | IMPLEMENTADO (2026-09-26) |
 | TASK-26 | Decidir e implementar o ajuste por proventos da série do COTAHIST (a fonte entrega preço bruto) | TASK-20 | etl | Fonte estruturada oficial identificada no UP2DATA, sem contrato gratuito confirmado; série permanece bruta e explicitamente sinalizada | BLOQUEADO por fonte/licença |
 | TASK-27 | Registrar em CTR-05 o segundo escritor de `serie_historica` (B3 além de BRAPI) e a regra de precedência | TASK-20 | infra | CTR-05 nomeia os dois escritores e diz qual vence na mesma chave | IMPLEMENTADO (2026-09-26) |
-| TASK-02 | Corrigir os contextos de build do compose local e usar o mesmo healthcheck | ISS-04, ISS-11 | infra | `docker compose -f docker-compose-local.yml up --build` sobe tudo *healthy* | PLANEJADO |
+| TASK-02 | Corrigir os contextos de build do compose local e usar o mesmo healthcheck | ISS-04, ISS-11 | infra | `compose.build-local.yml` usa os contextos dos repositórios irmãos; `docker-compose-local.yml` usa o mesmo healthcheck do MySQL e espera `service_healthy` | VERIFICADO (2026-10-08) |
 | TASK-03 | Serviço one-shot `db-migrate` (Flyway) que aplica o schema de forma idempotente | ISS-03, INT-04 | infra | Com volume antigo, colunas e índices novos existem após `up` | IMPLEMENTADO (2026-09-26) |
 | TASK-04 | Merge coordenado das features pendentes na ordem infra → gerar-insights → gestor | ISS-13 | todos | Os 3 repos com `git status` limpo e PRs mergeados em `develop` | PLANEJADO |
 
@@ -323,9 +323,9 @@ Variante mais enxuta (sem observabilidade) que faz build a partir de `./gestor-a
 |---|---|---|---|---|
 | TASK-20 | Compose `profiles` (core / observability) e bind em 127.0.0.1 | ISS-07, ISS-09 | `docker compose up` sem profile sobe só o core | PLANEJADO |
 | TASK-21 | Observabilidade uniforme: métricas e logs JSON do Python; logs do Java sem duplicação; dashboards Grafana provisionados | INT-06, ISS-08 | Os 2 targets *up* no Prometheus; 1 evento = 1 documento no ES | PLANEJADO |
-| TASK-22 | Fixar versões de imagem; `latest` só em release | ISS-05 | Nenhum `:latest` no compose | PLANEJADO |
-| TASK-23 | Usar o `entrypoint.sh` do provisionador; remover `timestamp()` das tags; fmt/tflint/checkov no CI | ISS-06, ISS-10, ISS-12 | `terraform plan` limpo na 2ª execução | PLANEJADO |
-| TASK-24 | Decidir e implementar/remover `sqs-iniciar-treinamento` e SNS | INT-08 | DEC-03 registrada | PLANEJADO |
+| TASK-22 | Fixar versões de imagem; `latest` só em release | ISS-05 | Nenhum `:latest` no compose principal; workflow de develop não publica `latest` | IMPLEMENTADO (2026-10-08) |
+| TASK-23 | Usar o `entrypoint.sh` do provisionador; remover `timestamp()` das tags; fmt/tflint/checkov no CI | ISS-06, ISS-10, ISS-12 | EntryPoint usado nos composes; tag dinâmica removida; CI bloqueia `terraform fmt` e `terraform validate` | IMPLEMENTADO PARCIAL (2026-10-08) |
+| TASK-24 | Decidir e implementar/remover `sqs-iniciar-treinamento` e SNS | INT-08 | `sqs-iniciar-treinamento` removida; SNS mantido por DEC-03 como destino de evento pós-insight | IMPLEMENTADO (2026-10-08) |
 
 ### Fase 3 — Precisão e confiabilidade (plano de 2026-09-27)
 
@@ -370,7 +370,7 @@ Ponto de partida medido: dados 31/31 com preço, balanço, data de entrega e TTM
 |---|---|---|---|---|
 | DEC-01 | Dono do schema MySQL | Infraestrutura/Flyway, diretório mysql-migrations | Java apenas validate; Python apenas DML; não editar migrations aplicadas | IMPLEMENTADO |
 | DEC-02 | Gatilho da análise de IA | síncrono / evento SNS pós-insight / agendamento | Evento pós-insight | PLANEJADO |
-| DEC-03 | Destino de `sqs-iniciar-treinamento` e do SNS `transmitir-lote-dados` | manter com caso de uso documentado / remover | Usar o SNS no DEC-02; remover a fila de treinamento até existir consumidor | PLANEJADO |
+| DEC-03 | Destino de `sqs-iniciar-treinamento` e do SNS `transmitir-lote-dados` | manter com caso de uso documentado / remover | Usar o SNS no DEC-02; remover a fila de treinamento até existir consumidor | IMPLEMENTADO (2026-10-08): `sqs-iniciar-treinamento` saiu de `infra/main.tf`; `transmitir-lote-dados` fica provisionado como destino do evento pós-insight |
 | DEC-04 | Fonte dos contratos | infra/contracts/*.schema.json | Distribuição pelo script sincronizar-contratos.mjs; --check detecta divergências | IMPLEMENTADO |
 | DEC-05 | Ambiente alvo além do local | só local / AWS real (dev/homolog/prod já previstos em `var.environment`) | Definir antes de TASK-13 do gestor (credenciais) | PLANEJADO |
 

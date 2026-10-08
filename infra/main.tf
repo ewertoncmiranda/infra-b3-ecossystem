@@ -12,15 +12,6 @@ module "sqs" {
       visibility_timeout_seconds = local.sqs_config.visibility_timeout_seconds
       max_receive_count          = local.sqs_config.max_receive_count
     }
-    iniciar_treinamento = {
-      name                       = "sqs-iniciar-treinamento"
-      delay_seconds              = local.sqs_config.delay_seconds
-      max_message_size           = local.sqs_config.max_message_size
-      message_retention_seconds  = local.sqs_config.message_retention_seconds
-      receive_wait_time_seconds  = local.sqs_config.receive_wait_time_seconds
-      visibility_timeout_seconds = local.sqs_config.visibility_timeout_seconds
-      max_receive_count          = local.sqs_config.max_receive_count
-    }
     registrar_series_historicas = {
       name                       = "sqs-registrar-series-historicas"
       delay_seconds              = local.sqs_config.delay_seconds
