@@ -81,6 +81,15 @@ foreach ($nome in $passos.Keys) {
     }
 }
 
+# Fichas do insider-ia (TASK-IA-12): cada tipo na sua cadencia (semanal, trimestral,
+# anual), contada em etl_execucao; sem nada vencido o script so registra no log dele.
+Escrever-Log $log 'inicio: fichas do insider-ia'
+& (Join-Path $PSScriptRoot 'fichas-ia.ps1')
+if ($LASTEXITCODE -ne 0) {
+    Escrever-Log $log "FALHOU: fichas do insider-ia (codigo $LASTEXITCODE; ver fichas-ia.log)"
+    $falhas += 'fichas do insider-ia'
+}
+
 if ($falhas.Count -gt 0) {
     $texto = "rotina da manha: falhas em $($falhas -join ', '). Log: $(Join-Path $script:PastaLocal $log)"
     if (-not (Enviar-Alerta $texto)) { Escrever-Log $log 'alerta nao enviado (Telegram nao configurado)' }
