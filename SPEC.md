@@ -694,3 +694,62 @@ Volume final estimado do banco: de ~1,7 GB para ~3,5 GB. O backup diário cresce
 | Significado de marca do ESPECI assumido errado | Conferir o layout oficial do COTAHIST da B3 antes de codificar; conjunto de eventos conhecidos como teste |
 | Mais testes, mais chance de achar sorte | `hipotese` e `numero_tentativa` obrigatórios; exigência maior para a melhor de N tentativas; diário ao vivo como juiz final |
 | V16 altera a chave única de `fato_contabil` (~0,5 mi linhas) | Rodar com a stack parada; backup antes; tempo estimado de 1–2 min |
+
+---
+
+## Plano OPR: sistema operável em modo simulado (2026-10-08)
+
+**Status:** PLANEJADO · **Objetivo:** transformar os sinais atuais em um diário operacional auditável, ainda sem capital real, com entrada, filtro de liquidez, tamanho de posição, regra de saída, custos estimados, comparação contra CDI e evidência acumulada por 3 a 6 meses.
+
+**Princípio de segurança.** O ecossistema continua sendo analítico até cumprir a trava operacional: mínimo de 63 pregões avaliados, operações simuladas fechadas, retorno líquido acima do CDI depois de custos, drawdown dentro do limite e nenhuma violação de liquidez. Antes disso, o status exibido deve ser `NAO_OPERAVEL` ou `EM_OBSERVACAO`, nunca recomendação de uso com capital real.
+
+### Contratos e tabelas canônicas
+
+Infra/Flyway é a proprietária única das migrations. Serviços Java e Python apenas validam/leem/escrevem dados conforme contrato.
+
+Tabelas propostas:
+
+| Tabela | Papel |
+|---|---|
+| `ativo_liquidez_diaria` | mart de liquidez e microestrutura por pregão, produzido pelo ETL |
+| `regra_operacional` | versões de regra de entrada, saída, sizing, custos e elegibilidade |
+| `operacao_simulada` | posição teórica aberta/fechada, com motivo de entrada e saída |
+| `diario_operacional` | fotografia diária da carteira simulada, retorno bruto/líquido, CDI e drawdown |
+| `evento_operacional` | trilha de auditoria: sinal gerado, posição aberta, posição fechada, bloqueio por dado/liquidez |
+
+Contratos JSON Schema propostos:
+
+| Contrato | Produtor | Consumidor |
+|---|---|---|
+| `operacional.sinal-gerado.v1` | gerar-insights | gestor, painel, alertas |
+| `operacional.posicao-aberta.v1` | gerar-insights | gestor, painel, Telegram |
+| `operacional.posicao-fechada.v1` | gerar-insights | gestor, painel, Telegram |
+| `operacional.diario-avaliado.v1` | gerar-insights | gestor, painel |
+| `operacional.alerta-risco.v1` | gerar-insights/gestor | Telegram |
+
+### Tarefas desta aplicação
+
+| ID | Tarefa | Depende de | Aceite | Status |
+|---|---|---|---|---|
+| OPR-INFRA-1 | Criar migration das tabelas `ativo_liquidez_diaria`, `regra_operacional`, `operacao_simulada`, `diario_operacional` e `evento_operacional`, com chaves únicas por data/símbolo/regra e colunas para `schema_version`, `versao_regra`, custos, CDI, retorno líquido e motivos estruturados | — | `flyway validate` limpo; serviços sobem com `ddl-auto=validate`; migrations não são duplicadas em apps | PLANEJADO |
+| OPR-INFRA-2 | Criar JSON Schemas dos eventos operacionais e enum compartilhado de status (`NAO_OPERAVEL`, `EM_OBSERVACAO`, `PAPER_TRADING_ELEGIVEL`, `BLOQUEADO`) | OPR-INFRA-1 | schemas versionados em `contracts/`; payload inválido falha em teste de contrato | PLANEJADO |
+| OPR-INFRA-3 | Incluir rotina diária pós-fechamento para disparar diário operacional depois das cargas do ETL e do worker; não executar se a saúde dos dados estiver vermelha | OPR-INFRA-1, gerar-insights#OPR-INS-4 | rotina registra execução e não duplica o mesmo pregão | PLANEJADO |
+| OPR-INFRA-4 | Adicionar alertas Telegram desacoplados para saúde operacional: diário fechado, posição simulada aberta/fechada, violação de drawdown/liquidez e mudança de status | OPR-INFRA-2, gestor#OPR-GES-4 | bot recebe alerta por evento interno; nenhum serviço de domínio conhece token do Telegram | PLANEJADO |
+| OPR-INFRA-5 | Provisionar painel/observabilidade do operacional: métricas de operações, retorno líquido, excesso sobre CDI, drawdown, bloqueios por liquidez/dados e fila de alertas | OPR-INFRA-1 | Prometheus/Grafana ou logs estruturados permitem auditar o diário sem consultar tabelas manualmente | PLANEJADO |
+
+### Divisão entre aplicações
+
+| Aplicação | Responsabilidade OPR |
+|---|---|
+| `etl-fundamentos-cvm` | produzir liquidez, integridade da série, preço bruto/ajustado, eventos/proventos e dados point-in-time |
+| `gerar-insights` | decidir elegibilidade, entrada, sizing, saída, custos e diário operacional |
+| `gestor-ativos-brutos` | expor APIs de leitura e saúde operacional ao painel/alertas |
+| `painel-ativos-frontend` | mostrar status de operabilidade, carteira simulada, retorno líquido vs CDI, drawdown e bloqueios |
+| `infra-b3-ecossytem` | migrations, contratos, agendamento, observabilidade e canal Telegram |
+
+### Aceite do plano OPR inteiro
+
+1. O painel mostra pelo menos 63 pregões de diário operacional simulado, com retorno líquido, CDI, excesso, drawdown e operações abertas/fechadas.
+2. Toda operação simulada tem preço de entrada, regra de saída, tamanho de posição, custos estimados e motivo de abertura/fechamento.
+3. O sistema só exibe `PAPER_TRADING_ELEGIVEL` se vencer o CDI líquido no período mínimo e respeitar os limites de risco configurados.
+4. Nenhum alerta ou operação simulada depende de chamada direta ao Telegram por serviço de negócio; tudo passa por evento/adapter.
