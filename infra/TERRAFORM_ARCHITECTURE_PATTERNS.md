@@ -112,7 +112,6 @@ tags = {
   Environment = var.environment
   Project     = var.project_name
   ManagedBy   = "Terraform"
-  CreatedAt   = timestamp()
 }
 ```
 
@@ -368,7 +367,7 @@ terraform plan -json | jq
 - Mesmos endpoints: `http://localhost:4566`
 - Mesmas skip flags: `skip_credentials_validation`, etc
 - Mesmos recursos: SQS, S3 (LocalStack suportados)
-- Mesmos nomes: `tratar-ativos`, `sqs-iniciar-treinamento`, `bucket-salvar-insights`
+- Mesmos nomes: `tratar-ativos`, `sqs-registrar-series-historicas`, `bucket-salvar-insights`
 - Mesmas tags: `Environment = "local"`, `Project = "devops-b3-monitoring"`
 
 **Melhorias de segurança**:

@@ -98,19 +98,35 @@ Estados: `PLANEJADO` · `EM ANDAMENTO (agente/branch, data)` · `IMPLEMENTADO` �
 | TASK-UX-5 | gestor | P2 | `GET` de listagem de ativos para o painel (favoritos + base): símbolo, empresa, setor, preço e variação, série curta para sparkline, sinal atual, último comunicado e flags de qualidade, paginado e filtrável por favorito/setor. Destrava a tabela única do painel (REQ-UX-8) | — | IMPLEMENTADO (2026-10-07, `GET /painel/ativos`, gestor `bef0ab0`; falta reimplantar o gestor) |
 | TASK-UX-6 | painel | P2 | Tabela única de ativos no painel e remoção das listas redundantes (Base, Favoritos, Setores, Monitorados) | TASK-UX-5 | IMPLEMENTADO (2026-10-07, painel `f20e9e6`: `#/ativos`; rotas antigas abrem a tabela; falta reimplantar o gestor) |
 | IA-01 | insider-ia | P1 | Esqueleto do serviço de IA (FastAPI, Dockerfile, compose.ia com duas redes, CI); remover `compose.ia*.yml` da infra | — | IMPLEMENTADO (2026-10-07; `compose.ia*.yml` agora no repo insider-ia e removidos da infra) |
-| IA-05 | insider-ia | P1 | Conjunto de avaliação exportado de `opiniao_ia` (315 dossiês de 2026-10-06) e métrica no CI | IA-01 | EM ANDAMENTO (Sessão 02/feature-esqueleto, 2026-10-07) |
-| IA-02/03/04/06 | insider-ia + gerar-insights | P1 | Portar modelo/validador/reserva (contrato com `permitidas` e `risco_calculado`), gerar-insights passa a chamar `POST /opiniao`, skills, casos de PETR4 | IA-01, IA-05 | PLANEJADO (Sessão 02) |
+| IA-05 | insider-ia | P1 | Conjunto de avaliação exportado de `opiniao_ia` (315 dossiês de 2026-10-06) e métrica no CI | IA-01 | IMPLEMENTADO (2026-10-07, 8e16bf3) |
+| IA-02 | insider-ia | P1 | Portar modelo/validador/reserva (contrato com `permitidas` e `risco_calculado`) | IA-01 | IMPLEMENTADO (2026-10-07, 8e16bf3) |
+| IA-03 | gerar-insights | P1 | `gerar-insights` passa a chamar `POST /opiniao` (`IA_URL` já no compose) em vez do Ollama; prompt sai do worker | IA-02 | VERIFICADO (Sessão 01, 2026-10-08): gerar-insights `c885678` chama `POST /opiniao` (identidade por `GET /saude`; `versao_prompt = skills@hash`; reserva local se o serviço cai); prompt/validador/Ollama removidos do worker. Aceite: 315/315 linhas REGRA de 2026-10-06 idênticas (regra local = banco = reserva do serviço); ponta a ponta com WEGE3 gravou 3 linhas pelo serviço |
+| IA-04 | insider-ia | P1 | Prompt atual vira skills (`skills/`) | IA-02 | PLANEJADO (Sessão 02, delegado pelo usuário em 2026-10-08) |
+| IA-06 | insider-ia | P1 | Casos de PETR4/2026-10-06 cobertos no validador | IA-02 | PLANEJADO (Sessão 03, delegado pelo usuário em 2026-10-08) |
 | IA-07/08/12 | insider-ia + infra | P2 | Fichas de evidência, setor, ativos e mercado; agendamento na rotina da manhã; usuário MySQL só leitura `leitor_ia` (script da rotina, senha fora do git) | DEC-IA-05 (job lê o MySQL) | EM ANDAMENTO (Sessão 03/feature-esqueleto, 2026-10-07) |
-| IA-14 | gestor+painel | P2 | Aceitar `trecho_id` em `justificativa_json` e mostrar fontes no cartão de opinião (sem migration, DEC-IA-03) | IA-11 | BLOQUEADO (IA-11; Sessão 01, 2026-10-07): parte 1 IMPLEMENTADA — gestor `2d71f86` usa só a geração mais recente do pregão, prefere origem MODELO e devolve `trechoId`/`versaoPrompt`; painel `ea1d2c9` mostra "fonte: <trecho>" e tolera item sem `evidenciaId`. Falta o link para a ficha/trecho quando o serviço publicar a URL das fichas |
-| IA-10/11/13 | insider-ia | P2 | RAG e orquestrador com trechos (adiado até as fichas provarem valor); modelo 7b só com GPU maior | IA-07/08 | PLANEJADO |
+| IA-09 | insider-ia | P2 | Fichas de fundamentos (glossário/fórmulas do painel, PDFs de estudo) | — | PLANEJADO (Sessão 03, delegado pelo usuário em 2026-10-08) |
+| IA-10 | insider-ia | P2 | Indexador incremental do RAG + busca com filtro de ponto no tempo (não mais adiado) | IA-07/08 | IMPLEMENTADO (Sessão 03, 2026-10-08, insider-ia `fa7badb`): 4.530 trechos, filtro de ponto no tempo por trecho; só textual até baixar `nomic-embed-text`. IA-11 desbloqueada |
+| IA-11 | insider-ia | P2 | Orquestrador monta o contexto e cita `trecho_id` | IA-10 | PLANEJADO (Sessão 02, delegado pelo usuário em 2026-10-08) |
+| IA-13 | insider-ia | P3 | Modelo 7b com GPU maior, comparado no conjunto de avaliação | IA-05 | PLANEJADO (Sessão 03, delegado pelo usuário em 2026-10-08) |
+| IA-14 | gestor+painel | P2 | Aceitar `trecho_id` em `justificativa_json` e mostrar fontes no cartão de opinião (sem migration, DEC-IA-03) | IA-11 | IMPLEMENTADO (Sessão 01 a pedido da Sessão 02, 2026-10-08): worker grava o item inteiro (`c885678`), gestor devolve `fonte`/`trecho` (`8a2cc22`), cartão mostra "fonte: <caminho>" e o trecho num expansível escapado (`7d8874d`) |
 | TASK-OPI-1 | gestor+painel | P1 | Expor a opinião por horizonte (`opiniao_ia`, V22, gerada pelo gerar-insights): `GET /ativos/{s}/opiniao` (pregão mais recente; por horizonte, linha do modelo local senão a de regra; aviso fixo) e cartão "Opinião por horizonte" na aba Resumo da ficha (3 horizontes, cor sempre com texto, selo Experimental, justificativa, o que invalida, origem) | V22, `app/opiniao` (Sessão 02) | IMPLEMENTADO (2026-10-07, gestor `ec382a3`/`9f43b6f`, painel `2453cfc`; falta reimplantar o gestor) |
 | TASK-E09 | etl | P2 | Agendar `--comunicados` (a rotina da manhã já o chama — confirmar e fechar) | — | VERIFICADO (Sessão 03, 2026-10-07): `scripts/cargas-etl.ps1` linha 28, passo `comunicados (IPE)` = `--comunicados`, primeiro da rotina |
-
+| GEM-A1 | insider-ia | P1 | **Base Gemini** (grupo A): provedor Gemini, governador de cota (baldes chat/card/lote, RPM/RPD, pausa após 429, cache), cadeia `gemini → ollama → regra`, configuração/compose (`.env.ia` só local, redes `ia`+`saida`, overrides de painel e gestor na rede `ia`), teste de vazamento da chave — insider-ia TASK-IA-24..28 | DEC-IA-06..09 | PLANEJADO |
+| GEM-A2 | insider-ia | P1 | `POST /opiniao/ativo` (CTR-IA-01 v1.1: 3 horizontes numa chamada, bloco `cota`) — TASK-IA-29 | GEM-A1 | PLANEJADO |
+| GEM-A4 | insider-ia | P1 | Chat `POST /chat` (SSE, CTR-IA-02): sessões, contexto RAG + pacote do ativo, ferramentas só leitura via GETs do gestor, guardas; sem Gemini ⇒ indisponível (DEC-IA-08) — TASK-IA-30..34 | GEM-A1, GEM-A5 (IA-35) | PLANEJADO |
+| GEM-A5 | insider-ia | P1 | Pacote do ativo `GET /ativo/{s}` (CTR-IA-03, via GETs do gestor + RSS) e leitura `POST /ativo/{s}/leitura` (CTR-IA-04) — TASK-IA-35/36 | GEM-A1 | PLANEJADO |
+| GEM-A6 | insider-ia | P2 | Resumo das manchetes `POST /manchetes/resumo` — TASK-IA-38; SPEC/README — TASK-IA-39 | GEM-A1 | PLANEJADO |
+| GEM-B | gerar-insights | P1 | Lote gradual (grupo B): uma chamada por ativo (v1.1, com volta à v1.0 se 404), fila de prioridade (favoritos, monitorados, mudou, variação > 2σ, liquidez; corte `LOTE_MAX_GEMINI`=25), reaproveitar por `dossie_hash`, parar quando `gemini_disponivel=false` — gerar-insights TASK-GEM-L1..L4 | CTR-IA-01 v1.1 (pode começar com dublê) | PLANEJADO |
+| GEM-C-NOT | painel | P1 | Manchetes dos favoritos na tela inicial (grupo C, trilha NOT): agregador `GET /noticias/favoritos` (CTR-PAI-NOT-01) com cache e deduplicação, card no topo do Início, comunicado oficial separado, resumo por IA opcional — painel TASK-NOT-1..6 | NOT-5 depende de GEM-A6 | PLANEJADO |
+| GEM-C-CHAT | painel | P1 | Assistente `#/assistente` e card "IA" na ficha (grupo C, trilha CHAT): proxy `/ia/*` (remove o prefixo; bloqueia `/ia/opiniao*`), cliente SSE, `<chat-ia>`, `<ativo-ia>` — painel TASK-CHAT-1..7 | CTR-IA-02/03/04 (pode começar com fixtures) | PLANEJADO |
+| GEM-OPS | usuário | P1 | Criar `insider-ia-b3-ecossytem/.env.ia` com `GEMINI_API_KEY` (fora do git; agentes não escrevem a chave) e conferir no AI Studio os nomes e limites dos modelos para `GEMINI_MODELOS`/`GEMINI_RPM`/`GEMINI_RPD` | — | PLANEJADO |
 A fila completa histórica (TASK-01..45, ISS-, INT-) continua nas seções 6–7 e nos SPECs dos serviços; esta tabela só lista o que está aberto **agora**.
 
 ### 1A.5 Contratos vigentes (índice; detalhe na seção 4)
 
 CTR-01..15 (seção 4) + Plano LAC (V16): `provento_contabil` (escritor: ETL), `evento_corporativo` (ETL/insights), `setor_grupo`, `fator_definicao`/`fator_valor`/`fator_mercado_mensal` (insights), `backtest_ranking_*` (insights), `cotacao_b3_diaria` com colunas novas `especificacao`, `marca_ex`, `fator_cotacao`, `preco_medio`, ofertas (ETL). Leitores: gestor (somente leitura) → painel por HTTP. `etl_execucao` registra a última execução de cada fonte (usada por `/validacao/saude-dados`, que lista 13 fontes com prazo e criticidade).
+
+**Plano GEM (2026-10-08):** CTR-IA-01 v1.1 `POST /opiniao/ativo`, CTR-IA-02 `POST /chat` (SSE), CTR-IA-03 `GET /ativo/{s}`, CTR-IA-04 `POST /ativo/{s}/leitura` e `POST /manchetes/resumo` — fonte: `insider-ia-b3-ecossytem/SPEC.md` 13.3 (só o grupo A edita); CTR-PAI-NOT-01 `GET /noticias/favoritos` — fonte: SPEC do painel. Escopo de arquivos por grupo: insider-ia 13.1.
 
 ### 1A.6 Decisões que não se desfazem sem discussão
 
@@ -120,6 +136,9 @@ Flyway é o único dono do schema; migration aplicada não se edita. Cada tabela
 
 | Data | Agente | Repo | O que mudou / o que fica pendente |
 |---|---|---|---|
+| 2026-10-10 | Claude (Sessão 01) | infra | OPR-INFRA-1: V23 com `ativo_liquidez_diaria`, `regra_operacional` (versão `OPR-2026.10.10-1` = DEC-OPR-1, RASCUNHO), `operacao_simulada`, `diario_operacional` (com CDI líquido de IR) e `evento_operacional` (fila de saída). Desbloqueia OPR-ETL-1 e OPR-INS-1..4. Pendente: aplicar no banco local e OPR-INFRA-2 (JSON Schemas) |
+| 2026-10-10 | Claude (Sessão 03) | infra + gerar-insights + gestor + painel | OPR-INFRA-2: JSON Schemas `operacional.*.v1` e `status-sistema.v1` em `contracts/operacional/`, teste de contrato na esteira (20/20) e enum `StatusOperacional` sincronizado nos 3 consumidores. Desbloqueia OPR-INS-7 e OPR-INFRA-4 |
+| 2026-10-08 | Claude (Sessão 01) | insider-ia, gerar-insights, painel, infra | Plano GEM registrado para execução paralela por repositório (grupos A/B/C, sem colisão de arquivos): Gemini como provedor principal com cota por baldes, lote gradual (≤25 ativos/pregão, uma chamada por ativo), chat por SSE (indisponível sem Gemini), card IA na ficha e manchetes dos favoritos no Início. Contratos em insider-ia 13.3. Pendente: GEM-OPS (chave em `.env.ia`, só local) |
 | 2026-10-07 | Claude (Sessão 01) | infra | T-INFRA-01/02/03 fechadas. Provisionador: estado do Terraform agora em volume (`terraform_estado:/estado`, `-state=/estado/terraform.tfstate`) — recriar o container com imagem nova perdia o estado e falhava com 409 (BucketAlreadyOwnedByYou), o que derrubaria o Garantir-Stack; `infra/Dockerfile` cria `/estado` com dono `terraform`. LocalStack reiniciado uma vez (em memória; 5 avisos de `sqs-fundamentos-atualizados` descartados) e provisionado 2x sem erro; worker reiniciado e consumindo. Pendente: publicar a imagem do provisionador com o Dockerfile novo (até lá o volume atual já tem o dono certo). `docker-compose-local.yml` (ignorado no git) recebeu a mesma mudança |
 | 2026-10-07 | Claude (Sessão 01) | gestor, painel | TASK-OPI-1: `GET /ativos/{s}/opiniao` (modelo antes de regra por horizonte; aviso fixo; vazio sem V22) e cartão "Opinião por horizonte" na aba Resumo; validado no navegador com as 321 linhas reais de `opiniao_ia` via gestor de teste. Pendente: reimplantar o gestor. Observações de conteúdo do gerador enviadas à Sessão 02 |
 | 2026-10-07 | Claude (Sessão 03) | infra, etl | Fase 2: V21 `setor_grupo` (41 setores, 11 grupos); LAC-ETL-2/3/4 entregues e backfill histórico carregado (ver fila). Marcas ex conferidas no layout oficial B3 rev. 02: EB ex-bonificação, EG ex-grupamento; EX não consta, aparece em desdobramento; EC/ERC (cisão) fora do leitor. Pendente: PRs feature→develop para publicar as imagens (T-INFRA-03) e o usuário registrar as tarefas (E20) |
@@ -160,33 +179,33 @@ Infra/Flyway -> schema MySQL (único executor de migrations)
 | Serviço | Imagem | Portas host | Depende de | Observações |
 |---|---|---|---|---|
 | localstack | `localstack/localstack:3.3` | 4566 | — | `SERVICES=sqs,s3,sns`, `DEBUG=1`, volume sem `PERSISTENCE` (estado efêmero) |
-| my-terraform-provisioner | `ewertonmiranda/infra-b3-ecossystem:latest` | — | localstack healthy | `entrypoint` sobrescrito para `terraform init && apply` (ignora o `entrypoint.sh`, ver `ISS-06`) |
+| my-terraform-provisioner | build local de `./infra` | — | localstack healthy | Usa o `entrypoint.sh` da imagem; estado persistido em `/estado/terraform.tfstate` via `TF_STATE_PATH` |
 | mysql | `mysql:8.0` | 3305→3306 | — | Flyway cria e evolui o schema após healthcheck |
-| gestor-ativos-brutos | `ewertonmiranda/gestor-ativos-brutos:latest` | 8091 | mysql, localstack, provisioner | `SPRING_PROFILES_ACTIVE=dev`, chaves via `${BRAPI_API_KEY}`/`${GEMINI_API_KEY}` |
-| gerar-insights | `ewertonmiranda/gerar-insights:latest` | 8080 | mysql, localstack, provisioner | Porta 8080 exposta, mas **não há servidor HTTP** (`ISS-08`) |
+| gestor-ativos-brutos | `ewertonmiranda/gestor-ativos-brutos:${B3_IMAGEM_TAG:-develop}` | 8091 | mysql, localstack, provisioner | `SPRING_PROFILES_ACTIVE=dev`, chaves via `${BRAPI_API_KEY}`/`${GEMINI_API_KEY}` |
+| gerar-insights | `ewertonmiranda/gerar-insights:${B3_IMAGEM_TAG:-develop}` | 8080 | mysql, localstack, provisioner | Porta 8080 exposta, mas **não há servidor HTTP** (`ISS-08`) |
 | elasticsearch | `elasticsearch:8.14.0` | 9200 | — | `xpack.security.enabled=false`, heap 512 MB |
 | logstash | `logstash:8.14.0` | 5000 tcp/udp | elasticsearch | Lê `./logs/**/*.log` com codec JSON + TCP JSON |
 | kibana | `kibana:8.14.0` | 5601 | elasticsearch | — |
-| prometheus | `prom/prometheus:latest` | 9090 | — | Faz scrape de `gestor:8091/actuator/prometheus` e `gerar-insights:8080` |
-| grafana | `grafana/grafana:latest` | 3000 | prometheus | `admin/admin` |
+| prometheus | `prom/prometheus:v2.53.1` | 9090 | — | Faz scrape de `gestor:8091/actuator/prometheus` e `gerar-insights:8080` |
+| grafana | `grafana/grafana:11.1.0` | 3000 | prometheus | `admin/admin` |
 
-### 3.2 `docker-compose-local.yml` (build local, não versionado)
-Variante mais enxuta (sem observabilidade) que faz build a partir de `./gestor-ativos-brutos` e `./gerar-insights`. Esses caminhos **não existem** dentro deste repositório (os projetos são pastas irmãs), então o build falha (`ISS-04`). O arquivo contém **chaves reais** da BRAPI e do Gemini (`ISS-01`).
+### 3.2 `docker-compose-local.yml` e `compose.build-local.yml`
+`docker-compose-local.yml` é a variante mais enxuta para usar imagens publicadas. Para testar código dos repositórios irmãos, acrescente `compose.build-local.yml`, que aponta para `../gestor-ativos-brutos/gestor-ativos-brutos`, `../gerar-insights/gerar-insights`, `../etl-fundamentos-cvm` e `../painel-ativos-frontend`. O arquivo local ainda contém chaves reais da BRAPI e do Gemini (`ISS-01`), que devem ser tratadas fora deste lote.
 
 ### 3.3 Terraform (`infra/`)
 - Provider AWS `~> 5.0` apontado para o LocalStack (`s3_use_path_style`, validações puladas).
-- Módulos: `sqs` (3 filas: `tratar-ativos`, `sqs-iniciar-treinamento`, `sqs-registrar-series-historicas`), `s3` (`bucket-salvar-insights`, versionamento desligado, acesso público bloqueado, `force_destroy`), `sns` (`transmitir-lote-dados`).
+- Módulos: `sqs` (4 filas: `tratar-ativos`, `sqs-registrar-series-historicas`, `sqs-fundamentos-atualizados`, `sqs-comunicados-publicados`), `s3` (`bucket-salvar-insights`, versionamento desligado, acesso público bloqueado, `force_destroy`), `sns` (`transmitir-lote-dados`).
 - Parâmetros de fila: `delay 0`, `max 256 KB`, `retenção 1 dia`, `long polling 10 s`. **Sem DLQ, sem `visibility_timeout` explícito (padrão 30 s), sem criptografia.**
-- `common_tags.CreatedAt = timestamp()` gera diff em todo `plan` (`ISS-10`).
-- Estado local (`terraform.tfstate` no disco, ignorado pelo git); no container, o estado é efêmero.
-- Imagem `infra/Dockerfile`: `hashicorp/terraform:latest` + aws-cli/jq, usuário não-root, `entrypoint.sh` com init → validate → plan → apply.
+- `common_tags` não usa timestamp dinâmico; o `plan` não muda apenas pela passagem do tempo.
+- Estado local (`terraform.tfstate` no disco, ignorado pelo git); no container, o estado fica em `/estado/terraform.tfstate` via `TF_STATE_PATH`.
+- Imagem `infra/Dockerfile`: `hashicorp/terraform:1.9.8` + aws-cli/jq, usuário não-root, `entrypoint.sh` com init → validate → plan → apply.
 
 ### 3.4 Schema MySQL (Flyway)
 `mysql-migrations/` é a fonte exclusiva: V1 cria a base em banco vazio; bancos existentes mantêm baseline 1; V2–V10 conservam checksums; V11 adiciona inbox. `db-migrate` termina antes dos serviços. O mount mysql-init foi removido.
 
 ### 3.5 CI (`.github/workflows`)
 - `01-feature-to-pr.yml`: abre PR `feature*` → `develop` automaticamente.
-- `02-docker-build-push.yml`: em push para `develop` roda `terraform init -backend=false` + `validate` e publica `infra-b3-ecossystem` com as tags `develop`, `latest`, `sha` etc.
+- `02-docker-build-push.yml`: em push para `develop` roda `terraform fmt -check -recursive`, `terraform init -backend=false` + `validate` e publica `infra-b3-ecossystem` com as tags `develop` e `sha`. A tag `latest` não é publicada nesse fluxo.
 - O mesmo padrão existe nos dois serviços, **sem testes** antes da publicação.
 
 ---
@@ -254,7 +273,7 @@ Variante mais enxuta (sem observabilidade) que faz build a partir de `./gestor-a
 | INT-05 | Médio | O gestor depende de campos de primeiro nível de `detalhes_json` que a spec do Python classificava como "legado" | `gestor: ConsolidadorAnaliseAcao.consolidarIndicadores` | Removê-los no Python quebra a análise de IA sem erro visível | Formalizados em CTR-03; `gerar-insights` não pode removê-los sem nova versão | PLANEJADO |
 | INT-06 | Médio | Observabilidade assimétrica: Python sem `/metrics` e com logs só em stdout (fora do ELK); Java loga em texto num arquivo lido como JSON **e** via TCP (duplicado) | `prometheus.yml`, `logstash.conf`, `gestor logback-spring.xml` | Target `gerar-insights` sempre *down*; logs duplicados ou quebrados no Kibana | Python: `prometheus_client` em :8080 + logs JSON; Java: JSON só via TCP; remover o input de arquivo **ou** padronizar arquivos JSON | PLANEJADO |
 | INT-07 | Médio | Timestamp da cotação perdido no contrato (`regularMarketTime`) | `gestor#ISS-07` | Impossível deduplicar por pregão ou ordenar corretamente | ISO-8601 UTC obrigatório em CTR-01 | PLANEJADO |
-| INT-08 | Baixo | Recursos provisionados sem uso: `sqs-iniciar-treinamento`, SNS `transmitir-lote-dados` | `infra/main.tf` | Ruído/confusão | Documentar o uso planejado (DEC-03) ou remover | PLANEJADO |
+| INT-08 | Baixo | Recursos provisionados sem uso: `sqs-iniciar-treinamento`, SNS `transmitir-lote-dados` | `infra/main.tf` | Ruído/confusão | `sqs-iniciar-treinamento` removida; SNS mantido como destino decidido para futuro evento pós-insight | IMPLEMENTADO (2026-10-08) |
 
 ### 6.2 Infraestrutura e Docker (`ISS-`)
 
@@ -263,15 +282,15 @@ Variante mais enxuta (sem observabilidade) que faz build a partir de `./gestor-a
 | ISS-01 | **Crítico** | Chaves reais BRAPI/Gemini em texto puro | `docker-compose-local.yml` (não versionado, mas sem proteção no `.gitignore`); também em `gestor/src/main/resources/application-test.properties` | Vazamento no primeiro `git add .` | Revogar e gerar novas chaves; mover para `.env` (listado no `.gitignore`) com `env_file`; adicionar `docker-compose-local.yml`/`.env` ao `.gitignore` ou usar só `${VAR}`; gitleaks no CI | PLANEJADO |
 | ISS-02 | Alto | Filas sem DLQ e sem `visibility_timeout`/`redrive_policy` | Módulo cria uma DLQ por fila, `maxReceiveCount=5`, retenção de 14 dias e visibilidade de 120 s | Mensagem venenosa é isolada | Validar no LocalStack após apply | IMPLEMENTADO (2026-09-26) |
 | ISS-03 | Alto | `mysql-init` só roda com volume vazio | Compose executa Flyway one-shot com migrations versionadas e o gestor valida o schema | Bancos existentes recebem as colunas e índices novos | Migração V2 é idempotente | IMPLEMENTADO (2026-09-26) |
-| ISS-04 | Alto | `docker-compose-local.yml` aponta para contextos de build inexistentes (`./gestor-ativos-brutos`, `./gerar-insights`) | `docker-compose-local.yml` | Ambiente de desenvolvimento local não sobe | `context: ../gestor-ativos-brutos/gestor-ativos-brutos` e `../gerar-insights/gerar-insights`, ou variável `ECOSYSTEM_ROOT`; usar `docker-compose.override.yml` para builds locais | PLANEJADO |
-| ISS-05 | Médio | Imagens `latest` (serviços, prometheus, grafana, terraform) e tag `latest` publicada a partir de `develop` | `docker-compose.yml`, workflows | Build não reproduzível; `develop` quebrado vira `latest` | Fixar versões/digests; `latest` só a partir de tag semver em `main` | PLANEJADO |
-| ISS-06 | Médio | O compose sobrescreve o `entrypoint.sh` do provisionador, pulando `validate`/`plan` e os logs estruturados | `docker-compose.yml` (`entrypoint: terraform init && apply`) | Perde as validações que a imagem oferece | Remover o override e usar o `ENTRYPOINT` da imagem | PLANEJADO |
+| ISS-04 | Alto | `docker-compose-local.yml` aponta para contextos de build inexistentes (`./gestor-ativos-brutos`, `./gerar-insights`) | `docker-compose-local.yml` | Ambiente de desenvolvimento local não sobe | `compose.build-local.yml` usa os contextos dos repositórios irmãos; compose local usa imagens publicadas por padrão | VERIFICADO (2026-10-08) |
+| ISS-05 | Médio | Imagens `latest` (serviços, prometheus, grafana, terraform) e tag `latest` publicada a partir de `develop` | `docker-compose.yml`, workflows | Build não reproduzível; `develop` quebrado vira `latest` | Compose usa tags explícitas ou `${B3_IMAGEM_TAG:-develop}`; workflow de develop não publica `latest` | IMPLEMENTADO (2026-10-08) |
+| ISS-06 | Médio | O compose sobrescreve o `entrypoint.sh` do provisionador, pulando `validate`/`plan` e os logs estruturados | `docker-compose.yml` (`entrypoint: terraform init && apply`) | Perde as validações que a imagem oferece | Override removido; `TF_STATE_PATH=/estado/terraform.tfstate` mantém estado persistente pelo entrypoint | IMPLEMENTADO (2026-10-08) |
 | ISS-07 | Médio | Credenciais e flags inseguras: Grafana `admin/admin`, Elasticsearch sem segurança, LocalStack `DEBUG=1`, MySQL `root/root`, todas as portas expostas no host | `docker-compose.yml` | Aceitável só em máquina local; perigoso se reaproveitado em servidor | Variáveis em `.env`; bind em `127.0.0.1:`; marcar o compose como "somente dev" | PLANEJADO |
 | ISS-08 | Médio | `gerar-insights` expõe 8080 e o Prometheus faz scrape dele, mas o worker não tem HTTP | `docker-compose.yml`, `prometheus.yml` | Target sempre *down*; porta enganosa | Implementar `/metrics` e `/health` no worker (INT-06) ou remover porta e job | PLANEJADO |
 | ISS-09 | Médio | Pilha pesada: ES + Logstash + Kibana + Prometheus + Grafana + 2 JVMs (≈ 3–4 GB RAM) sempre ligados | `docker-compose.yml` | Máquina de desenvolvimento lenta | Compose `profiles` (`core`, `observability`); `docker compose --profile observability up` quando necessário | PLANEJADO |
-| ISS-10 | Baixo | `CreatedAt = timestamp()` nas tags causa diff permanente | `infra/locals.tf` | `plan` nunca fica limpo | Remover a tag ou usar `lifecycle { ignore_changes = [tags["CreatedAt"]] }` | PLANEJADO |
-| ISS-11 | Baixo | Healthcheck do MySQL no compose local sem credenciais; `gestor` espera só `service_started` | `docker-compose-local.yml` | Java pode subir antes do banco estar pronto | Mesmo healthcheck do compose principal + `service_healthy` | PLANEJADO |
-| ISS-12 | Baixo | CI da infra publica imagem sem `terraform fmt -check`, tflint ou checkov | `.github/workflows/02-docker-build-push.yml` | Qualidade e segurança do IaC não verificadas | Adicionar fmt/tflint/checkov | PLANEJADO |
+| ISS-10 | Baixo | `CreatedAt = timestamp()` nas tags causa diff permanente | `infra/locals.tf` | `plan` nunca fica limpo | Tag removida | IMPLEMENTADO (2026-10-08) |
+| ISS-11 | Baixo | Healthcheck do MySQL no compose local sem credenciais; `gestor` espera só `service_started` | `docker-compose-local.yml` | Java pode subir antes do banco estar pronto | Compose local já usa `mysqladmin -uroot -proot` e `service_healthy`; SPEC reconciliada | VERIFICADO (2026-10-08) |
+| ISS-12 | Baixo | CI da infra publica imagem sem `terraform fmt -check`, tflint ou checkov | `.github/workflows/02-docker-build-push.yml` | Qualidade e segurança do IaC não verificada | Workflow bloqueia `fmt` e `validate`; tflint/checkov seguem como melhoria posterior por dependerem de política de segurança IaC | IMPLEMENTADO PARCIAL (2026-10-08) |
 | ISS-13 | Médio | Trabalho registrado no código nos **três** repositórios, em branches `feature-*` diferentes | `git status` de cada repo | Mudanças de contrato (série histórica, nova fila e tabela) podem ser integradas fora de ordem | Ordem de merge: infra (fila e tabela) → gerar-insights (consumidor) → gestor (produtor) | PLANEJADO |
 
 ---
@@ -286,7 +305,7 @@ Variante mais enxuta (sem observabilidade) que faz build a partir de `./gestor-a
 | TASK-25 | Série histórica longa via COTAHIST da B3, quebrando o teto de 3 meses da BRAPI | CTR-05 | infra, etl | Carga filtra ativos monitorados, divide preços por 100 e grava `fonte='B3'` | IMPLEMENTADO (2026-09-26) |
 | TASK-26 | Decidir e implementar o ajuste por proventos da série do COTAHIST (a fonte entrega preço bruto) | TASK-20 | etl | Fonte estruturada oficial identificada no UP2DATA, sem contrato gratuito confirmado; série permanece bruta e explicitamente sinalizada | BLOQUEADO por fonte/licença |
 | TASK-27 | Registrar em CTR-05 o segundo escritor de `serie_historica` (B3 além de BRAPI) e a regra de precedência | TASK-20 | infra | CTR-05 nomeia os dois escritores e diz qual vence na mesma chave | IMPLEMENTADO (2026-09-26) |
-| TASK-02 | Corrigir os contextos de build do compose local e usar o mesmo healthcheck | ISS-04, ISS-11 | infra | `docker compose -f docker-compose-local.yml up --build` sobe tudo *healthy* | PLANEJADO |
+| TASK-02 | Corrigir os contextos de build do compose local e usar o mesmo healthcheck | ISS-04, ISS-11 | infra | `compose.build-local.yml` usa os contextos dos repositórios irmãos; `docker-compose-local.yml` usa o mesmo healthcheck do MySQL e espera `service_healthy` | VERIFICADO (2026-10-08) |
 | TASK-03 | Serviço one-shot `db-migrate` (Flyway) que aplica o schema de forma idempotente | ISS-03, INT-04 | infra | Com volume antigo, colunas e índices novos existem após `up` | IMPLEMENTADO (2026-09-26) |
 | TASK-04 | Merge coordenado das features pendentes na ordem infra → gerar-insights → gestor | ISS-13 | todos | Os 3 repos com `git status` limpo e PRs mergeados em `develop` | PLANEJADO |
 
@@ -306,9 +325,9 @@ Variante mais enxuta (sem observabilidade) que faz build a partir de `./gestor-a
 |---|---|---|---|---|
 | TASK-20 | Compose `profiles` (core / observability) e bind em 127.0.0.1 | ISS-07, ISS-09 | `docker compose up` sem profile sobe só o core | PLANEJADO |
 | TASK-21 | Observabilidade uniforme: métricas e logs JSON do Python; logs do Java sem duplicação; dashboards Grafana provisionados | INT-06, ISS-08 | Os 2 targets *up* no Prometheus; 1 evento = 1 documento no ES | PLANEJADO |
-| TASK-22 | Fixar versões de imagem; `latest` só em release | ISS-05 | Nenhum `:latest` no compose | PLANEJADO |
-| TASK-23 | Usar o `entrypoint.sh` do provisionador; remover `timestamp()` das tags; fmt/tflint/checkov no CI | ISS-06, ISS-10, ISS-12 | `terraform plan` limpo na 2ª execução | PLANEJADO |
-| TASK-24 | Decidir e implementar/remover `sqs-iniciar-treinamento` e SNS | INT-08 | DEC-03 registrada | PLANEJADO |
+| TASK-22 | Fixar versões de imagem; `latest` só em release | ISS-05 | Nenhum `:latest` no compose principal; workflow de develop não publica `latest` | IMPLEMENTADO (2026-10-08) |
+| TASK-23 | Usar o `entrypoint.sh` do provisionador; remover `timestamp()` das tags; fmt/tflint/checkov no CI | ISS-06, ISS-10, ISS-12 | EntryPoint usado nos composes; tag dinâmica removida; CI bloqueia `terraform fmt` e `terraform validate` | IMPLEMENTADO PARCIAL (2026-10-08) |
+| TASK-24 | Decidir e implementar/remover `sqs-iniciar-treinamento` e SNS | INT-08 | `sqs-iniciar-treinamento` removida; SNS mantido por DEC-03 como destino de evento pós-insight | IMPLEMENTADO (2026-10-08) |
 
 ### Fase 3 — Precisão e confiabilidade (plano de 2026-09-27)
 
@@ -353,7 +372,7 @@ Ponto de partida medido: dados 31/31 com preço, balanço, data de entrega e TTM
 |---|---|---|---|---|
 | DEC-01 | Dono do schema MySQL | Infraestrutura/Flyway, diretório mysql-migrations | Java apenas validate; Python apenas DML; não editar migrations aplicadas | IMPLEMENTADO |
 | DEC-02 | Gatilho da análise de IA | síncrono / evento SNS pós-insight / agendamento | Evento pós-insight | PLANEJADO |
-| DEC-03 | Destino de `sqs-iniciar-treinamento` e do SNS `transmitir-lote-dados` | manter com caso de uso documentado / remover | Usar o SNS no DEC-02; remover a fila de treinamento até existir consumidor | PLANEJADO |
+| DEC-03 | Destino de `sqs-iniciar-treinamento` e do SNS `transmitir-lote-dados` | manter com caso de uso documentado / remover | Usar o SNS no DEC-02; remover a fila de treinamento até existir consumidor | IMPLEMENTADO (2026-10-08): `sqs-iniciar-treinamento` saiu de `infra/main.tf`; `transmitir-lote-dados` fica provisionado como destino do evento pós-insight |
 | DEC-04 | Fonte dos contratos | infra/contracts/*.schema.json | Distribuição pelo script sincronizar-contratos.mjs; --check detecta divergências | IMPLEMENTADO |
 | DEC-05 | Ambiente alvo além do local | só local / AWS real (dev/homolog/prod já previstos em `var.environment`) | Definir antes de TASK-13 do gestor (credenciais) | PLANEJADO |
 
@@ -677,3 +696,72 @@ Volume final estimado do banco: de ~1,7 GB para ~3,5 GB. O backup diário cresce
 | Significado de marca do ESPECI assumido errado | Conferir o layout oficial do COTAHIST da B3 antes de codificar; conjunto de eventos conhecidos como teste |
 | Mais testes, mais chance de achar sorte | `hipotese` e `numero_tentativa` obrigatórios; exigência maior para a melhor de N tentativas; diário ao vivo como juiz final |
 | V16 altera a chave única de `fato_contabil` (~0,5 mi linhas) | Rodar com a stack parada; backup antes; tempo estimado de 1–2 min |
+
+---
+
+## Plano OPR: sistema operável em modo simulado (2026-10-08)
+
+**Status:** PLANEJADO · **Objetivo:** transformar os sinais atuais em um diário operacional auditável, ainda sem capital real, com entrada, filtro de liquidez, tamanho de posição, regra de saída, custos estimados, comparação contra CDI e evidência acumulada por 3 a 6 meses.
+
+**Princípio de segurança.** O ecossistema continua sendo analítico até cumprir a trava operacional: mínimo de 63 pregões avaliados, operações simuladas fechadas, retorno líquido acima do CDI depois de custos, drawdown dentro do limite e nenhuma violação de liquidez. Antes disso, o status exibido deve ser `NAO_OPERAVEL` ou `EM_OBSERVACAO`, nunca recomendação de uso com capital real.
+
+### Contratos e tabelas canônicas
+
+Infra/Flyway é a proprietária única das migrations. Serviços Java e Python apenas validam/leem/escrevem dados conforme contrato.
+
+Tabelas propostas:
+
+| Tabela | Papel |
+|---|---|
+| `ativo_liquidez_diaria` | mart de liquidez e microestrutura por pregão, produzido pelo ETL |
+| `regra_operacional` | versões de regra de entrada, saída, sizing, custos e elegibilidade |
+| `operacao_simulada` | posição teórica aberta/fechada, com motivo de entrada e saída |
+| `diario_operacional` | fotografia diária da carteira simulada, retorno bruto/líquido, CDI e drawdown |
+| `evento_operacional` | trilha de auditoria: sinal gerado, posição aberta, posição fechada, bloqueio por dado/liquidez |
+
+Contratos JSON Schema propostos:
+
+| Contrato | Produtor | Consumidor |
+|---|---|---|
+| `operacional.sinal-gerado.v1` | gerar-insights | gestor, painel, alertas |
+| `operacional.posicao-aberta.v1` | gerar-insights | gestor, painel, Telegram |
+| `operacional.posicao-fechada.v1` | gerar-insights | gestor, painel, Telegram |
+| `operacional.diario-avaliado.v1` | gerar-insights | gestor, painel |
+| `operacional.alerta-risco.v1` | gerar-insights/gestor | Telegram |
+
+### Tarefas desta aplicação
+
+| ID | Tarefa | Depende de | Aceite | Status |
+|---|---|---|---|---|
+| OPR-INFRA-1 | Criar migration das tabelas `ativo_liquidez_diaria`, `regra_operacional`, `operacao_simulada`, `diario_operacional` e `evento_operacional`, com chaves únicas por data/símbolo/regra e colunas para `schema_version`, `versao_regra`, custos, CDI, retorno líquido e motivos estruturados | — | `flyway validate` limpo; serviços sobem com `ddl-auto=validate`; migrations não são duplicadas em apps | IMPLEMENTADO (Sessão 01, 2026-10-10): `V23__operacional_simulado.sql` com as 5 tabelas, CHECKs dos vocabulários (faixa, motivo de saída, status, tipo de evento), chaves únicas de idempotência, FKs para `regra_operacional` e a versão inicial `OPR-2026.10.10-1` (DEC-OPR-1) em RASCUNHO. Conferida num MySQL 8 descartável: V1→V23 aplicadas, `flyway validate` limpo, duplicata/CHECK/FK recusados. Falta aplicar no banco local (o `db-migrate` aplica ao subir a stack) |
+| OPR-INFRA-2 | Criar JSON Schemas dos eventos operacionais e enum compartilhado de status (`NAO_OPERAVEL`, `EM_OBSERVACAO`, `PAPER_TRADING_ELEGIVEL`, `BLOQUEADO`) | OPR-INFRA-1 | schemas versionados em `contracts/`; payload inválido falha em teste de contrato | IMPLEMENTADO (Sessão 03, 2026-10-10): `contracts/operacional/` com `status-sistema.v1` (enum compartilhado, igual ao CHECK `ck_diario_status` da V23), `comum.v1` (envelope `schemaVersion`, `eventId`, `correlationId`, `evento`, `versao_regra`, `dataPregao`, `emitidoEm`, `modo=SIMULADO`, `aviso`, `dados`) e os 5 eventos `sinal-gerado`, `posicao-aberta`, `posicao-fechada`, `diario-avaliado`, `alerta-risco` (draft 2020-12, campo fora do contrato recusado). Teste de contrato `npm test` (`scripts/testar-contratos.mjs`, ajv 8.17.1): 5 válidos passam, 14 inválidos falham (sem eventId, modo REAL, motivo/status/severidade fora do vocabulário, campo extra, drawdown positivo etc.) e o enum confere com a V23; roda na esteira `03-teste-contratos.yml`. `sincronizar-contratos.mjs` copia os schemas para o gerar-insights e gera `StatusOperacional` em Python, Java e JS |
+| OPR-INFRA-3 | Incluir rotina diária pós-fechamento para disparar diário operacional depois das cargas do ETL e do worker; não executar se a saúde dos dados estiver vermelha | OPR-INFRA-1, gerar-insights#OPR-INS-4 | rotina registra execução e não duplica o mesmo pregão | PLANEJADO |
+| OPR-INFRA-4 | Adicionar alertas Telegram desacoplados para saúde operacional: diário fechado, posição simulada aberta/fechada, violação de drawdown/liquidez e mudança de status | OPR-INFRA-2, gestor#OPR-GES-4 | bot recebe alerta por evento interno; nenhum serviço de domínio conhece token do Telegram | PLANEJADO |
+| OPR-INFRA-5 | Provisionar painel/observabilidade do operacional: métricas de operações, retorno líquido, excesso sobre CDI, drawdown, bloqueios por liquidez/dados e fila de alertas | OPR-INFRA-1 | Prometheus/Grafana ou logs estruturados permitem auditar o diário sem consultar tabelas manualmente | PLANEJADO |
+
+### Divisão entre aplicações
+
+| Aplicação | Responsabilidade OPR |
+|---|---|
+| `etl-fundamentos-cvm` | produzir liquidez, integridade da série, preço bruto/ajustado, eventos/proventos e dados point-in-time |
+| `gerar-insights` | decidir elegibilidade, entrada, sizing, saída, custos e diário operacional |
+| `gestor-ativos-brutos` | expor APIs de leitura e saúde operacional ao painel/alertas |
+| `painel-ativos-frontend` | mostrar status de operabilidade, carteira simulada, retorno líquido vs CDI, drawdown e bloqueios |
+| `infra-b3-ecossytem` | migrations, contratos, agendamento, observabilidade e canal Telegram |
+
+### DEC-OPR-1: valores fixados (2026-10-10)
+
+Por decisão do usuário, o plano OPR deixa de ser só intenção e passa a ter números. Fonte da verdade: `gerar-insights/SPEC.md`, seção "Parâmetros fixados" (liquidez, tamanho de posição, saída e IR) e `etl-fundamentos-cvm/SPEC.md`, "Métricas fixadas para `ativo_liquidez_diaria`". Resumo:
+
+- **Liquidez:** volume financeiro médio 63d ≥ R$ 5 mi, ≥ 500 negócios/dia, presença ≥ 95%, spread mediano ≤ 0,5%; faixas ALTA/MEDIA/INSUFICIENTE.
+- **Posição:** risco de 0,5% do capital ÷ (2 × ATR14), limitada a 5% por ativo, 20% por setor, 1% do volume médio de 21 pregões, 15 posições, mínimo R$ 500; redutores por liquidez MEDIA e volatilidade alta.
+- **Saída:** execução na abertura de D+1; prioridade evento CVM > stop (2 ATR; móvel 3 ATR) > liquidez (5 pregões) > sinal > prazo do horizonte.
+- **IR:** regras versionadas por vigência (15% em ações, isenção até R$ 20 mil de vendas/mês, compensação de prejuízo, IRRF 0,005%); benchmark = **CDI líquido de IR**.
+
+Impacto em OPR-INFRA-1: `ativo_liquidez_diaria` com as colunas da seção do ETL; `regra_operacional.parametros_json` guarda estes valores por `versao_regra`; `diario_operacional` com `cdi_liquido_ir` além do CDI bruto.
+### Aceite do plano OPR inteiro
+
+1. O painel mostra pelo menos 63 pregões de diário operacional simulado, com retorno líquido, CDI, excesso, drawdown e operações abertas/fechadas.
+2. Toda operação simulada tem preço de entrada, regra de saída, tamanho de posição, custos estimados e motivo de abertura/fechamento.
+3. O sistema só exibe `PAPER_TRADING_ELEGIVEL` se vencer o CDI líquido no período mínimo e respeitar os limites de risco configurados.
+4. Nenhum alerta ou operação simulada depende de chamada direta ao Telegram por serviço de negócio; tudo passa por evento/adapter.

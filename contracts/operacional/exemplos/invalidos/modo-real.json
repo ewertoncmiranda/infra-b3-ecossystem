@@ -1,0 +1,34 @@
+{
+  "contrato": "posicao-aberta",
+  "motivo": "modo so pode ser SIMULADO",
+  "payload": {
+    "schemaVersion": "1",
+    "eventId": "0f8b8f1e-6a2c-4c55-9a3e-3b1d2c4e5f60",
+    "correlationId": "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "evento": "operacional.posicao-aberta.v1",
+    "versao_regra": "OPR-2026.10.10-1",
+    "dataPregao": "2026-10-09",
+    "emitidoEm": "2026-10-09T21:30:00-03:00",
+    "modo": "REAL",
+    "aviso": "Operacao simulada (paper trading): nao e ordem nem recomendacao de investimento.",
+    "dados": {
+      "operacao_id": 42,
+      "simbolo": "PETR4",
+      "setor_grupo": "Petroleo e Gas",
+      "horizonte_pregoes": 21,
+      "data_decisao_entrada": "2026-10-08",
+      "data_entrada": "2026-10-09",
+      "preco_entrada": 54.1,
+      "quantidade": 100,
+      "valor_entrada": 5410.0,
+      "atr_entrada": 1.12,
+      "stop_inicial": 51.86,
+      "faixa_liquidez_entrada": "ALTA",
+      "custos_entrada": 5.41,
+      "motivo_entrada": {
+        "sinal": "SINAL_POSITIVO",
+        "risco_por_operacao": 0.005
+      }
+    }
+  }
+}

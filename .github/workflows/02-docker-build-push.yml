@@ -37,10 +37,24 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=develop
-            type=raw,value=latest
 
-      # Sem fmt/validate do Terraform na esteira (decisao de 2026-10-07: so
-      # testes unitarios bloqueiam; a infra nao tem teste unitario).
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Terraform fmt
+        working-directory: ./infra
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate
+        working-directory: ./infra
+        env:
+          TF_VAR_aws_endpoint: http://localhost:4566
+        run: |
+          terraform init -backend=false
+          terraform validate
+
       - name: Build and push to Docker Hub
         uses: docker/build-push-action@v5
         with:
@@ -50,4 +64,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/infra-b3-ecossystem:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/infra-b3-ecossystem:buildcache,mode=max
-
