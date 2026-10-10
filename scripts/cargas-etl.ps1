@@ -46,6 +46,9 @@ $passos = [ordered]@{
     # 2026-09-28); avaliar julga os horizontes que venceram desde entao.
     'diario de sinais: registrar' = $insights + @('app.validacao.diario', 'registrar')
     'diario de sinais: avaliar'   = $insights + @('app.validacao.diario', 'avaliar')
+    # Plano OPR (OPR-INS-4): diario operacional simulado. Sem argumentos: processa os pregoes
+    # novos com liquidez (calculada na carga do COTAHIST) e preenche o proprio historico.
+    'diario operacional (OPR)'    = $insights + @('app.operacional.diario')
 }
 # Backtest semanal: o placar muda devagar e roda em segundos.
 if ((Get-Date).DayOfWeek -eq 'Friday') {
@@ -88,6 +91,25 @@ Escrever-Log $log 'inicio: fichas do insider-ia'
 if ($LASTEXITCODE -ne 0) {
     Escrever-Log $log "FALHOU: fichas do insider-ia (codigo $LASTEXITCODE; ver fichas-ia.log)"
     $falhas += 'fichas do insider-ia'
+}
+
+# Diario operacional simulado (OPR-INFRA-3, Plano OPR): abre/fecha posicoes
+# para cada pregao novo. Depende de preco oficial, insights e elegibilidade;
+# so roda quando as cargas criticas do dia estao ok (saude dos dados verde).
+# Nao duplica: diario.py verifica o ultimo pregao gravado e processa apenas
+# os novos. Sai com codigo 0 quando nao ha nada a processar.
+if ($falhas.Count -eq 0) {
+    Escrever-Log $log 'inicio: diario operacional'
+    $r = Rodar-Compose ($insights + @('app.operacional.diario'))
+    $r.Saida | Where-Object { $_ -match 'Diario|operacional|pregoes|abertas|fechadas|pendentes|canceladas|patrimonio|ERROR|CRITICAL|Traceback|Exception' } |
+        ForEach-Object { Escrever-Log $log "  $_" }
+    if ($r.Codigo -ne 0) {
+        Escrever-Log $log "FALHOU: diario operacional (codigo $($r.Codigo))"
+        $falhas += 'diario operacional'
+    }
+} else {
+    Escrever-Log $log "AVISO: diario operacional ignorado (saude vermelha: $($falhas -join ', '))"
+    Registrar-Execucao 'DIARIO_OPERACIONAL' 'IGNORADO' 0 "saude vermelha: $($falhas -join ', ')"
 }
 
 if ($falhas.Count -gt 0) {
