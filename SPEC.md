@@ -132,6 +132,8 @@ CTR-01..15 (seção 4) + Plano LAC (V16): `provento_contabil` (escritor: ETL), `
 
 Flyway é o único dono do schema; migration aplicada não se edita. Cada tabela tem um escritor. GET nunca grava/publica. BRAPI só para favoritos e dentro do orçamento. Preço oficial = COTAHIST; BRAPI é foto intradiária conciliada (`--conciliar`). Nenhum rótulo de recomendação sem aviso de regra experimental (Res. CVM 20/2021). Valor ausente é `NULL` com motivo, nunca 0. Dados de ponto-no-tempo (`data_entrega`) — sem look-ahead no backtest.
 
+**DEC-AGT-1 (2026-10-10, usuário): start único.** Toda feature roda a partir do start único de cada repositório (container/compose e a rotina da manhã `scripts/cargas-etl.ps1`). Agente não cria comando, flag, script avulso ou `__main__` que não foi pedido — nem para inspeção ou backfill; feature nova entra numa etapa existente e preenche o próprio histórico no primeiro start. Exceções e detalhes: `AGENTS.md` na raiz de cada repositório.
+
 ### 1A.7 Diário de handoff (mais novo no topo; uma linha por entrega)
 
 | Data | Agente | Repo | O que mudou / o que fica pendente |
