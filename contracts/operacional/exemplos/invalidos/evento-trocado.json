@@ -1,0 +1,28 @@
+{
+  "contrato": "sinal-gerado",
+  "motivo": "evento precisa ser o do proprio contrato",
+  "payload": {
+    "schemaVersion": "1",
+    "eventId": "0f8b8f1e-6a2c-4c55-9a3e-3b1d2c4e5f60",
+    "correlationId": "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "evento": "operacional.posicao-aberta.v1",
+    "versao_regra": "OPR-2026.10.10-1",
+    "dataPregao": "2026-10-09",
+    "emitidoEm": "2026-10-09T21:30:00-03:00",
+    "modo": "SIMULADO",
+    "aviso": "Operacao simulada (paper trading): nao e ordem nem recomendacao de investimento.",
+    "dados": {
+      "simbolo": "PETR4",
+      "horizonte_pregoes": 21,
+      "sinal": "SINAL_POSITIVO",
+      "elegivel": true,
+      "faixa_liquidez": "ALTA",
+      "motivos": [
+        {
+          "codigo": "LIQUIDEZ_OK",
+          "descricao": "Volume 63d acima de R$ 5 mi"
+        }
+      ]
+    }
+  }
+}

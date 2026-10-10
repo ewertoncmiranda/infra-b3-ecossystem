@@ -1,0 +1,21 @@
+name: Teste de contratos
+
+# OPR-INFRA-2: JSON Schemas de contracts/operacional; payload invalido tem de falhar.
+on:
+  push:
+    branches:
+      - 'feature**'
+      - develop
+      - main
+  pull_request:
+
+jobs:
+  contratos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
