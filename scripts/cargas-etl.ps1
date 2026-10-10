@@ -46,6 +46,9 @@ $passos = [ordered]@{
     # 2026-09-28); avaliar julga os horizontes que venceram desde entao.
     'diario de sinais: registrar' = $insights + @('app.validacao.diario', 'registrar')
     'diario de sinais: avaliar'   = $insights + @('app.validacao.diario', 'avaliar')
+    # Plano OPR (OPR-INS-4): diario operacional simulado. Sem argumentos: processa os pregoes
+    # novos com liquidez (calculada na carga do COTAHIST) e preenche o proprio historico.
+    'diario operacional (OPR)'    = $insights + @('app.operacional.diario')
 }
 # Backtest semanal: o placar muda devagar e roda em segundos.
 if ((Get-Date).DayOfWeek -eq 'Friday') {
