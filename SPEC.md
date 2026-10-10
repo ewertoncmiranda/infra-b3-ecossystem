@@ -747,6 +747,16 @@ Contratos JSON Schema propostos:
 | `painel-ativos-frontend` | mostrar status de operabilidade, carteira simulada, retorno líquido vs CDI, drawdown e bloqueios |
 | `infra-b3-ecossytem` | migrations, contratos, agendamento, observabilidade e canal Telegram |
 
+### DEC-OPR-1: valores fixados (2026-10-10)
+
+Por decisão do usuário, o plano OPR deixa de ser só intenção e passa a ter números. Fonte da verdade: `gerar-insights/SPEC.md`, seção "Parâmetros fixados" (liquidez, tamanho de posição, saída e IR) e `etl-fundamentos-cvm/SPEC.md`, "Métricas fixadas para `ativo_liquidez_diaria`". Resumo:
+
+- **Liquidez:** volume financeiro médio 63d ≥ R$ 5 mi, ≥ 500 negócios/dia, presença ≥ 95%, spread mediano ≤ 0,5%; faixas ALTA/MEDIA/INSUFICIENTE.
+- **Posição:** risco de 0,5% do capital ÷ (2 × ATR14), limitada a 5% por ativo, 20% por setor, 1% do volume médio de 21 pregões, 15 posições, mínimo R$ 500; redutores por liquidez MEDIA e volatilidade alta.
+- **Saída:** execução na abertura de D+1; prioridade evento CVM > stop (2 ATR; móvel 3 ATR) > liquidez (5 pregões) > sinal > prazo do horizonte.
+- **IR:** regras versionadas por vigência (15% em ações, isenção até R$ 20 mil de vendas/mês, compensação de prejuízo, IRRF 0,005%); benchmark = **CDI líquido de IR**.
+
+Impacto em OPR-INFRA-1: `ativo_liquidez_diaria` com as colunas da seção do ETL; `regra_operacional.parametros_json` guarda estes valores por `versao_regra`; `diario_operacional` com `cdi_liquido_ir` além do CDI bruto.
 ### Aceite do plano OPR inteiro
 
 1. O painel mostra pelo menos 63 pregões de diário operacional simulado, com retorno líquido, CDI, excesso, drawdown e operações abertas/fechadas.
