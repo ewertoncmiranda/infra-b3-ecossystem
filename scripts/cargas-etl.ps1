@@ -90,6 +90,25 @@ if ($LASTEXITCODE -ne 0) {
     $falhas += 'fichas do insider-ia'
 }
 
+# Diario operacional simulado (OPR-INFRA-3, Plano OPR): abre/fecha posicoes
+# para cada pregao novo. Depende de preco oficial, insights e elegibilidade;
+# so roda quando as cargas criticas do dia estao ok (saude dos dados verde).
+# Nao duplica: diario.py verifica o ultimo pregao gravado e processa apenas
+# os novos. Sai com codigo 0 quando nao ha nada a processar.
+if ($falhas.Count -eq 0) {
+    Escrever-Log $log 'inicio: diario operacional'
+    $r = Rodar-Compose ($insights + @('app.operacional.diario'))
+    $r.Saida | Where-Object { $_ -match 'Diario|operacional|pregoes|abertas|fechadas|pendentes|canceladas|patrimonio|ERROR|CRITICAL|Traceback|Exception' } |
+        ForEach-Object { Escrever-Log $log "  $_" }
+    if ($r.Codigo -ne 0) {
+        Escrever-Log $log "FALHOU: diario operacional (codigo $($r.Codigo))"
+        $falhas += 'diario operacional'
+    }
+} else {
+    Escrever-Log $log "AVISO: diario operacional ignorado (saude vermelha: $($falhas -join ', '))"
+    Registrar-Execucao 'DIARIO_OPERACIONAL' 'IGNORADO' 0 "saude vermelha: $($falhas -join ', ')"
+}
+
 if ($falhas.Count -gt 0) {
     $texto = "rotina da manha: falhas em $($falhas -join ', '). Log: $(Join-Path $script:PastaLocal $log)"
     if (-not (Enviar-Alerta $texto)) { Escrever-Log $log 'alerta nao enviado (Telegram nao configurado)' }
