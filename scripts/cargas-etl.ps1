@@ -54,9 +54,6 @@ $passos = [ordered]@{
     # 2026-09-28); avaliar julga os horizontes que venceram desde entao.
     'diario de sinais: registrar' = $insights + @('app.validacao.diario', 'registrar')
     'diario de sinais: avaliar'   = $insights + @('app.validacao.diario', 'avaliar')
-    # Plano OPR (OPR-INS-4): diario operacional simulado. Sem argumentos: processa os pregoes
-    # novos com liquidez (calculada na carga do COTAHIST) e preenche o proprio historico.
-    'diario operacional (OPR)'    = $insights + @('app.operacional.diario')
 }
 # Backtest semanal: o placar muda devagar e roda em segundos.
 if ((Get-Date).DayOfWeek -eq 'Friday') {
@@ -119,6 +116,12 @@ if ($falhas.Count -eq 0) {
     Escrever-Log $log "AVISO: diario operacional ignorado (saude vermelha: $($falhas -join ', '))"
     Registrar-Execucao 'DIARIO_OPERACIONAL' 'IGNORADO' 0 "saude vermelha: $($falhas -join ', ')"
 }
+
+# Alertas do operacional (OPR-INFRA-4): adapter fora dos servicos de dominio. Consome a fila
+# sqs-eventos-operacionais e manda um resumo por rodada pelo Telegram (Enviar-Alerta, token so nas
+# variaveis de ambiente do usuario). Sem Telegram configurado, nao consome nada.
+Escrever-Log $log 'inicio: alertas do operacional'
+& (Join-Path $PSScriptRoot 'alertas-operacionais.ps1')
 
 if ($falhas.Count -gt 0) {
     $texto = "rotina da manha: falhas em $($falhas -join ', '). Log: $(Join-Path $script:PastaLocal $log)"
