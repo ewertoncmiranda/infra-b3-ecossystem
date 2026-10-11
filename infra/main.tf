@@ -56,6 +56,17 @@ module "sqs" {
       visibility_timeout_seconds = local.sqs_config.visibility_timeout_seconds
       max_receive_count          = local.sqs_config.max_receive_count
     }
+    # OPRV2-INS-6: eventos operacional.*.v2 (snapshot, consenso, tese, timeline, alerta-ux),
+    # so o que mudou por ativo e pregao. Fila separada da v1 para nao inundar o adapter de alertas.
+    eventos_operacionais_v2 = {
+      name                       = "sqs-eventos-operacionais-v2"
+      delay_seconds              = local.sqs_config.delay_seconds
+      max_message_size           = local.sqs_config.max_message_size
+      message_retention_seconds  = local.sqs_config.message_retention_seconds
+      receive_wait_time_seconds  = local.sqs_config.receive_wait_time_seconds
+      visibility_timeout_seconds = local.sqs_config.visibility_timeout_seconds
+      max_receive_count          = local.sqs_config.max_receive_count
+    }
   }
 
   common_tags = local.common_tags
