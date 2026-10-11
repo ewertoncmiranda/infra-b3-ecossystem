@@ -1,0 +1,1 @@
+{ "contrato": "alerta-ux.v2", "motivo": "alerta de estado atual precisa estar marcado como ativo", "payload": { "id": "PETR4:BLOQUEIO_DADO", "ativo": false, "severidade": "ATENCAO", "categoria": "DADO", "simbolo": "PETR4", "titulo": "Dados incompletos", "dataEvento": "2026-10-09", "createdAt": null, "payload": {} } }
