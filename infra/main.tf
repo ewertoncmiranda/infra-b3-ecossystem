@@ -44,6 +44,18 @@ module "sqs" {
       visibility_timeout_seconds = local.sqs_config.visibility_timeout_seconds
       max_receive_count          = local.sqs_config.max_receive_count
     }
+    # Plano OPR (OPR-INS-7): eventos operacional.*.v1 do paper trading (contratos em
+    # contracts/operacional). Produtor: gerar-insights (diario operacional). Consumidores:
+    # gestor, painel e o adapter de alertas (OPR-INFRA-4).
+    eventos_operacionais = {
+      name                       = "sqs-eventos-operacionais"
+      delay_seconds              = local.sqs_config.delay_seconds
+      max_message_size           = local.sqs_config.max_message_size
+      message_retention_seconds  = local.sqs_config.message_retention_seconds
+      receive_wait_time_seconds  = local.sqs_config.receive_wait_time_seconds
+      visibility_timeout_seconds = local.sqs_config.visibility_timeout_seconds
+      max_receive_count          = local.sqs_config.max_receive_count
+    }
   }
 
   common_tags = local.common_tags
