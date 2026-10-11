@@ -10,7 +10,7 @@ services:
       AWS_DEFAULT_REGION: sa-east-1
       DEBUG: 1
     ports:
-      - "4566:4566"
+      - "127.0.0.1:4566:4566"
     volumes:
       - localstack_data:/var/lib/localstack
     networks:
@@ -52,7 +52,7 @@ services:
       MYSQL_USER: spring
       MYSQL_PASSWORD: spring123
     ports:
-      - "3305:3306"
+      - "127.0.0.1:3305:3306"
     command: --default-authentication-plugin=mysql_native_password
     volumes:
       - mysql_data:/var/lib/mysql
@@ -96,7 +96,7 @@ services:
       my-terraform-provisioner:
         condition: service_completed_successfully
     ports:
-      - "8091:8091"
+      - "127.0.0.1:8091:8091"
     environment:
       SPRING_PROFILES_ACTIVE: dev
       SERVER_PORT: 8091
@@ -126,8 +126,6 @@ services:
     image: ewertonmiranda/gerar-insights:${B3_IMAGEM_TAG:-develop}
     container_name: gerar-insights
     restart: always
-    ports:
-      - "8080:8080"
     depends_on:
       mysql:
         condition: service_healthy
@@ -242,7 +240,7 @@ services:
       gestor-ativos-brutos:
         condition: service_started
     ports:
-      - "8082:8080"
+      - "127.0.0.1:8082:8080"
     environment:
       PORT: 8080
       BACKEND_URL: http://gestor-ativos-brutos:8091
@@ -257,13 +255,14 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
     container_name: elasticsearch
+    profiles: ["observability"]
     restart: unless-stopped
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: "-Xms512m -Xmx512m"
     ports:
-      - "9200:9200"
+      - "127.0.0.1:9200:9200"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
     networks:
@@ -277,14 +276,15 @@ services:
   logstash:
     image: docker.elastic.co/logstash/logstash:8.14.0
     container_name: logstash
+    profiles: ["observability"]
     restart: unless-stopped
     volumes:
         - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
         - ./logs:/logs:ro
         - logstash_data:/usr/share/logstash/data
     ports:
-      - "5000:5000/tcp"
-      - "5000:5000/udp"
+      - "127.0.0.1:5000:5000/tcp"
+      - "127.0.0.1:5000:5000/udp"
     environment:
       LS_JAVA_OPTS: "-Xmx256m -Xms256m"
     depends_on:
@@ -296,9 +296,10 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:8.14.0
     container_name: kibana
+    profiles: ["observability"]
     restart: unless-stopped
     ports:
-      - "5601:5601"
+      - "127.0.0.1:5601:5601"
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
     depends_on:
@@ -310,12 +311,13 @@ services:
   prometheus:
     image: prom/prometheus:v2.53.1
     container_name: prometheus
+    profiles: ["observability"]
     restart: unless-stopped
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -325,9 +327,10 @@ services:
   grafana:
     image: grafana/grafana:11.1.0
     container_name: grafana
+    profiles: ["observability"]
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin

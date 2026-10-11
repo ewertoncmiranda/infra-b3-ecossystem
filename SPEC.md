@@ -180,16 +180,16 @@ Infra/Flyway -> schema MySQL (único executor de migrations)
 
 | Serviço | Imagem | Portas host | Depende de | Observações |
 |---|---|---|---|---|
-| localstack | `localstack/localstack:3.3` | 4566 | — | `SERVICES=sqs,s3,sns`, `DEBUG=1`, volume sem `PERSISTENCE` (estado efêmero) |
+| localstack | `localstack/localstack:3.3` | 127.0.0.1:4566 | — | `SERVICES=sqs,s3,sns`, `DEBUG=1`, volume sem `PERSISTENCE` (estado efêmero) |
 | my-terraform-provisioner | build local de `./infra` | — | localstack healthy | Usa o `entrypoint.sh` da imagem; estado persistido em `/estado/terraform.tfstate` via `TF_STATE_PATH` |
-| mysql | `mysql:8.0` | 3305→3306 | — | Flyway cria e evolui o schema após healthcheck |
-| gestor-ativos-brutos | `ewertonmiranda/gestor-ativos-brutos:${B3_IMAGEM_TAG:-develop}` | 8091 | mysql, localstack, provisioner | `SPRING_PROFILES_ACTIVE=dev`, chaves via `${BRAPI_API_KEY}`/`${GEMINI_API_KEY}` |
-| gerar-insights | `ewertonmiranda/gerar-insights:${B3_IMAGEM_TAG:-develop}` | 8080 | mysql, localstack, provisioner | Porta 8080 exposta, mas **não há servidor HTTP** (`ISS-08`) |
-| elasticsearch | `elasticsearch:8.14.0` | 9200 | — | `xpack.security.enabled=false`, heap 512 MB |
-| logstash | `logstash:8.14.0` | 5000 tcp/udp | elasticsearch | Lê `./logs/**/*.log` com codec JSON + TCP JSON |
-| kibana | `kibana:8.14.0` | 5601 | elasticsearch | — |
-| prometheus | `prom/prometheus:v2.53.1` | 9090 | — | Faz scrape de `gestor:8091/actuator/prometheus` e `gerar-insights:8080` |
-| grafana | `grafana/grafana:11.1.0` | 3000 | prometheus | `admin/admin` |
+| mysql | `mysql:8.0` | 127.0.0.1:3305→3306 | — | Flyway cria e evolui o schema após healthcheck |
+| gestor-ativos-brutos | `ewertonmiranda/gestor-ativos-brutos:${B3_IMAGEM_TAG:-develop}` | 127.0.0.1:8091 | mysql, localstack, provisioner | `SPRING_PROFILES_ACTIVE=dev`, chaves via `${BRAPI_API_KEY}`/`${GEMINI_API_KEY}` |
+| gerar-insights | `ewertonmiranda/gerar-insights:${B3_IMAGEM_TAG:-develop}` | — | mysql, localstack, provisioner | Worker sem servidor HTTP; não expõe 8080 nem entra no scrape até `gerar-insights` implementar `/metrics`/`/health` (`ISS-08`) |
+| elasticsearch | `elasticsearch:8.14.0` | 127.0.0.1:9200 | — | Profile `observability`; `xpack.security.enabled=false`, heap 512 MB |
+| logstash | `logstash:8.14.0` | 127.0.0.1:5000 tcp/udp | elasticsearch | Profile `observability`; lê `./logs/**/*.log` com codec JSON + TCP JSON |
+| kibana | `kibana:8.14.0` | 127.0.0.1:5601 | elasticsearch | Profile `observability` |
+| prometheus | `prom/prometheus:v2.53.1` | 127.0.0.1:9090 | — | Profile `observability`; faz scrape de `gestor:8091/actuator/prometheus`; `gerar-insights` removido enquanto não tiver HTTP |
+| grafana | `grafana/grafana:11.1.0` | 127.0.0.1:3000 | prometheus | Profile `observability`; `admin/admin` |
 
 ### 3.2 `docker-compose-local.yml` e `compose.build-local.yml`
 `docker-compose-local.yml` é a variante mais enxuta para usar imagens publicadas. Para testar código dos repositórios irmãos, acrescente `compose.build-local.yml`, que aponta para `../gestor-ativos-brutos/gestor-ativos-brutos`, `../gerar-insights/gerar-insights`, `../etl-fundamentos-cvm` e `../painel-ativos-frontend`. O arquivo local ainda contém chaves reais da BRAPI e do Gemini (`ISS-01`), que devem ser tratadas fora deste lote.
@@ -247,14 +247,14 @@ Infra/Flyway -> schema MySQL (único executor de migrations)
 | REQ-02 | Provisionar filas, bucket e tópico automaticamente antes dos serviços | IMPLEMENTADO |
 | REQ-03 | Criar o schema MySQL de forma reprodutível, inclusive em bancos já existentes | IMPLEMENTADO com Flyway (2026-09-26) |
 | REQ-04 | Ter logs e métricas dos dois serviços centralizados | EM ANDAMENTO (`ISS-08`, `INT-06`) |
-| REQ-05 | Ambiente de desenvolvimento com build local dos serviços | PLANEJADO (`ISS-04`) |
+| REQ-05 | Ambiente de desenvolvimento com build local dos serviços | VERIFICADO (`ISS-04`, 2026-10-08) |
 
 ### 5.2 Não funcionais
 
 | ID | Requisito | Status |
 |---|---|---|
 | NFR-01 | Nenhum segredo em arquivos do repositório ou no disco sem proteção | PLANEJADO (`ISS-01`) |
-| NFR-02 | Versões de imagem fixadas (sem `latest`) para reprodutibilidade | PLANEJADO (`ISS-05`) |
+| NFR-02 | Versões de imagem fixadas (sem `latest`) para reprodutibilidade | IMPLEMENTADO (`ISS-05`, 2026-10-08) |
 | NFR-03 | Toda fila de trabalho com DLQ e `visibility_timeout` adequado | IMPLEMENTADO (2026-09-26) |
 | NFR-04 | Idempotência ponta a ponta no fluxo consumido SQS | IMPLEMENTADO — inbox transacional V11, GET sem escrita e ACK após commit |
 | NFR-05 | Schema com dono único e migrations versionadas | IMPLEMENTADO — V1 contém bootstrap; V2–V10 preservadas; V11 inbox; sem mysql-init |
@@ -288,8 +288,8 @@ Infra/Flyway -> schema MySQL (único executor de migrations)
 | ISS-05 | Médio | Imagens `latest` (serviços, prometheus, grafana, terraform) e tag `latest` publicada a partir de `develop` | `docker-compose.yml`, workflows | Build não reproduzível; `develop` quebrado vira `latest` | Compose usa tags explícitas ou `${B3_IMAGEM_TAG:-develop}`; workflow de develop não publica `latest` | IMPLEMENTADO (2026-10-08) |
 | ISS-06 | Médio | O compose sobrescreve o `entrypoint.sh` do provisionador, pulando `validate`/`plan` e os logs estruturados | `docker-compose.yml` (`entrypoint: terraform init && apply`) | Perde as validações que a imagem oferece | Override removido; `TF_STATE_PATH=/estado/terraform.tfstate` mantém estado persistente pelo entrypoint | IMPLEMENTADO (2026-10-08) |
 | ISS-07 | Médio | Credenciais e flags inseguras: Grafana `admin/admin`, Elasticsearch sem segurança, LocalStack `DEBUG=1`, MySQL `root/root`, todas as portas expostas no host | `docker-compose.yml` | Aceitável só em máquina local; perigoso se reaproveitado em servidor | Variáveis em `.env`; bind em `127.0.0.1:`; marcar o compose como "somente dev" | PLANEJADO |
-| ISS-08 | Médio | `gerar-insights` expõe 8080 e o Prometheus faz scrape dele, mas o worker não tem HTTP | `docker-compose.yml`, `prometheus.yml` | Target sempre *down*; porta enganosa | Implementar `/metrics` e `/health` no worker (INT-06) ou remover porta e job | PLANEJADO |
-| ISS-09 | Médio | Pilha pesada: ES + Logstash + Kibana + Prometheus + Grafana + 2 JVMs (≈ 3–4 GB RAM) sempre ligados | `docker-compose.yml` | Máquina de desenvolvimento lenta | Compose `profiles` (`core`, `observability`); `docker compose --profile observability up` quando necessário | PLANEJADO |
+| ISS-08 | Médio | `gerar-insights` expõe 8080 e o Prometheus faz scrape dele, mas o worker não tem HTTP | `docker-compose.yml`, `docker-compose-local.yml`, `prometheus.yml` | Target sempre *down*; porta enganosa | Porta 8080 e job Prometheus removidos enquanto o worker não tiver `/metrics`/`/health`; `TASK-21` mantém a meta futura de métricas Python reais | IMPLEMENTADO (2026-10-11) |
+| ISS-09 | Médio | Pilha pesada: ES + Logstash + Kibana + Prometheus + Grafana + 2 JVMs (≈ 3–4 GB RAM) sempre ligados | `docker-compose.yml`, `docker-compose-local.yml` | Máquina de desenvolvimento lenta | Serviços de observabilidade movidos para profile `observability`; portas publicadas apenas em `127.0.0.1` | IMPLEMENTADO (2026-10-11) |
 | ISS-10 | Baixo | `CreatedAt = timestamp()` nas tags causa diff permanente | `infra/locals.tf` | `plan` nunca fica limpo | Tag removida | IMPLEMENTADO (2026-10-08) |
 | ISS-11 | Baixo | Healthcheck do MySQL no compose local sem credenciais; `gestor` espera só `service_started` | `docker-compose-local.yml` | Java pode subir antes do banco estar pronto | Compose local já usa `mysqladmin -uroot -proot` e `service_healthy`; SPEC reconciliada | VERIFICADO (2026-10-08) |
 | ISS-12 | Baixo | CI da infra publica imagem sem `terraform fmt -check`, tflint ou checkov | `.github/workflows/02-docker-build-push.yml` | Qualidade e segurança do IaC não verificada | Workflow bloqueia `fmt` e `validate`; tflint/checkov seguem como melhoria posterior por dependerem de política de segurança IaC | IMPLEMENTADO PARCIAL (2026-10-08) |
@@ -325,7 +325,7 @@ Infra/Flyway -> schema MySQL (único executor de migrations)
 
 | ID | Tarefa | Resolve | Critério de aceite | Status |
 |---|---|---|---|---|
-| TASK-20 | Compose `profiles` (core / observability) e bind em 127.0.0.1 | ISS-07, ISS-09 | `docker compose up` sem profile sobe só o core | PLANEJADO |
+| TASK-20 | Compose `profiles` (core / observability) e bind em 127.0.0.1 | ISS-07, ISS-09 | `docker compose up` sem profile sobe só o core | IMPLEMENTADO (2026-10-11): `elasticsearch`, `logstash`, `kibana`, `prometheus` e `grafana` estão no profile `observability`; `localstack`, `mysql`, `gestor`, `painel` e a pilha de observabilidade publicam portas apenas em `127.0.0.1`; `gerar-insights` não publica 8080 por ser worker sem HTTP |
 | TASK-21 | Observabilidade uniforme: métricas e logs JSON do Python; logs do Java sem duplicação; dashboards Grafana provisionados | INT-06, ISS-08 | Os 2 targets *up* no Prometheus; 1 evento = 1 documento no ES | PLANEJADO |
 | TASK-22 | Fixar versões de imagem; `latest` só em release | ISS-05 | Nenhum `:latest` no compose principal; workflow de develop não publica `latest` | IMPLEMENTADO (2026-10-08) |
 | TASK-23 | Usar o `entrypoint.sh` do provisionador; remover `timestamp()` das tags; fmt/tflint/checkov no CI | ISS-06, ISS-10, ISS-12 | EntryPoint usado nos composes; tag dinâmica removida; CI bloqueia `terraform fmt` e `terraform validate` | IMPLEMENTADO PARCIAL (2026-10-08) |
@@ -767,3 +767,54 @@ Impacto em OPR-INFRA-1: `ativo_liquidez_diaria` com as colunas da seção do ETL
 2. Toda operação simulada tem preço de entrada, regra de saída, tamanho de posição, custos estimados e motivo de abertura/fechamento.
 3. O sistema só exibe `PAPER_TRADING_ELEGIVEL` se vencer o CDI líquido no período mínimo e respeitar os limites de risco configurados.
 4. Nenhum alerta ou operação simulada depende de chamada direta ao Telegram por serviço de negócio; tudo passa por evento/adapter.
+
+---
+
+## Plano OPERABILIDADE V2: cockpit de decisão auditável (2026-10-11)
+
+**Status:** PLANEJADO · **Objetivo:** evoluir o OPR de “aba de paper trading” para uma experiência completa de mercado por ticker e por carteira simulada: cards enriquecidos, consenso de sinais, explicação da tese, timeline do ativo, alertas, filtros e evidência visual. Continua sendo simulação; nenhuma tela deve sugerir ordem real ou recomendação individual.
+
+### Dependências entre sistemas
+
+```text
+etl-fundamentos-cvm
+  → dados de mercado, liquidez, eventos, fundamentos point-in-time
+gerar-insights
+  → sinais, consenso, explicação, confiança, status operacional e eventos
+gestor-ativos-brutos
+  → APIs HTTP de leitura agregada para painel
+painel-ativos-frontend
+  → experiência visual, filtros, timeline, cockpit e comparação de sinais
+infra-b3-ecossytem
+  → contratos, migrations, rotinas, observabilidade e alertas Telegram
+```
+
+### Contratos e tabelas esperados
+
+| Item | Dono | Consumidores |
+|---|---|---|
+| `operacional.snapshot-ticker.v2` | gerar-insights | gestor, painel, Telegram |
+| `operacional.consenso-sinais.v2` | gerar-insights | gestor, painel |
+| `operacional.tese-explicada.v2` | gerar-insights | gestor, painel, IA |
+| `operacional.timeline-ativo.v2` | gerar-insights/gestor | painel |
+| `operacional.alerta-ux.v2` | gestor/infra | painel, Telegram |
+| `ticker_operacional_snapshot` | infra/Flyway | gestor, painel |
+| `ticker_operacional_timeline` | infra/Flyway | gestor, painel |
+
+### Tarefas desta aplicação
+
+| ID | Tarefa | Depende de | Aceite | Status |
+|---|---|---|---|---|
+| OPRV2-INFRA-1 | Definir contratos JSON Schema V2 para snapshot do ticker, consenso de sinais, tese explicada, timeline e alerta UX, reaproveitando `status-sistema.v1` e o aviso obrigatório de simulação | OPR-INFRA-2, gerar-insights#OPRV2-INS-1 | `npm test` dos contratos valida exemplos positivos/negativos; campos extras são recusados | IMPLEMENTADO (2026-10-11): schemas v2 estritos para os cinco payloads e exemplos positivos/negativos; `npm test` validou 26 casos, inclusive alerta inativo rejeitado |
+| OPRV2-INFRA-2 | Criar migrations para materializar `ticker_operacional_snapshot` e `ticker_operacional_timeline`, sem duplicar tabelas OPR existentes | OPR-INFRA-1, OPRV2-INFRA-1 | Flyway aplica limpo; snapshot é único por `simbolo`, `data_pregao`, `versao_regra`; timeline é idempotente por `event_id` | IMPLEMENTADO (2026-10-11): V25 cria as tabelas e V26 alinha campos de projeção ao produtor sem editar migrations anteriores; V1–V26, chaves únicas e inserções do contrato foram validadas em MySQL 8 descartável |
+| OPRV2-INFRA-3 | Estender rotina da manhã para atualizar snapshots/timeline depois do diário operacional e antes dos alertas Telegram | gerar-insights#OPRV2-INS-4, OPR-INFRA-3 | Reprocessar o mesmo pregão não duplica snapshot nem timeline; falha vira alerta operacional, não derruba cargas anteriores | PLANEJADO |
+| OPRV2-INFRA-4 | Padronizar severidades e categorias de alerta UX (`DADO`, `LIQUIDEZ`, `RISCO`, `EVENTO`, `SINAL`, `SISTEMA`) para painel e Telegram | OPRV2-INFRA-1 | Painel e Telegram exibem a mesma categoria e texto para o mesmo evento | PLANEJADO |
+| OPRV2-INFRA-5 | Criar observabilidade da experiência operacional: métricas de snapshots gerados, timelines geradas, alertas emitidos, APIs OPRV2 e falhas por dependência | OPRV2-INFRA-3, gestor#OPRV2-GES-5 | Prometheus/Grafana ou logs JSON mostram volume, atraso e falhas por componente | PLANEJADO |
+
+### Ordem recomendada
+
+1. `OPRV2-INFRA-1` + `gerar-insights#OPRV2-INS-1` para fixar contrato.
+2. `OPRV2-INFRA-2` + `gerar-insights#OPRV2-INS-2..4` para produzir dados.
+3. `gestor#OPRV2-GES-1..5` para expor HTTP.
+4. `painel#OPRV2-PAI-1..9` para a experiência visual.
+5. `OPRV2-INFRA-4..5` para alertas e observabilidade.

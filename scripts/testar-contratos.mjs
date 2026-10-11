@@ -16,7 +16,9 @@ addFormats(ajv);
 for (const nome of jsons(pasta)) ajv.addSchema(lerJson(join(pasta, nome)));
 
 const validador = (contrato) => {
-  const id = `https://contracts.b3-ecossistema.local/operacional/${contrato}.v1.schema.json`;
+  const versao = contrato.endsWith('.v2') ? 'v2' : 'v1';
+  const nome = contrato.endsWith('.v2') ? contrato.slice(0, -3) : contrato;
+  const id = `https://contracts.b3-ecossistema.local/operacional/${nome}.${versao}.schema.json`;
   const validar = ajv.getSchema(id);
   if (!validar) throw new Error(`schema inexistente: ${id}`);
   return validar;
@@ -24,7 +26,8 @@ const validador = (contrato) => {
 
 let falhas = 0;
 let casos = 0;
-const contratos = jsons(pasta).filter((n) => !/^(comum|status-sistema)\./.test(n)).map((n) => n.replace('.v1.schema.json', ''));
+const contratos = jsons(pasta).filter((n) => !/^(comum|status-sistema)\./.test(n))
+  .map((n) => n.replace(/\.schema\.json$/, '').replace(/\.v1$/, ''));
 const cobertos = new Set();
 
 for (const nome of jsons(join(pasta, 'exemplos', 'validos'))) {
@@ -52,7 +55,7 @@ for (const nome of jsons(join(pasta, 'exemplos', 'invalidos'))) {
   }
 }
 
-// Todo contrato precisa de ao menos um exemplo valido; o enum tem de bater com o CHECK da V23.
+// Todo contrato precisa de ao menos um exemplo valido; o enum V1 tem de bater com o CHECK da V23.
 for (const contrato of contratos) {
   if (!cobertos.has(contrato)) {
     falhas += 1;
