@@ -23,6 +23,10 @@ if (-not (Garantir-Stack)) {
 $ano = (Get-Date).Year
 $etl = @('--profile', 'etl', 'run', '--rm', '--no-deps', 'etl-fundamentos-cvm')
 $insights = @('run', '--rm', '--no-deps', 'gerar-insights', 'python', '-m')
+# Opiniao por horizonte: com o compose do servico de IA (rede `ia`, IA_URL) quando o repositorio
+# insider-ia esta ao lado; sem ele, o lote grava pela regra local (mesma reserva do servico).
+$composeIa = Join-Path $script:Infra '..\insider-ia-b3-ecossytem\compose.ia.yml'
+$insightsIa = if (Test-Path $composeIa) { @('-f', $composeIa) + $insights } else { $insights }
 
 $passos = [ordered]@{
     'comunicados (IPE)'        = $etl + @('--comunicados')
@@ -41,6 +45,10 @@ $passos = [ordered]@{
     # de 30 pregoes), nao so o ultimo - e o que torna um dia de maquina
     # desligada recuperavel em vez de virar buraco definitivo.
     'insights diarios (Base)'  = $insights + @('app.insights_diarios', '--recuperar')
+    # Lote de opiniao (Gemini -> Ollama -> regra, ate LOTE_MAX_GEMINI ativos priorizados): sem
+    # argumentos recupera sozinho os pregoes com insight sem opiniao (ultimos 5). Alimenta o
+    # diario operacional (entrada e saida por sinal).
+    'opiniao por horizonte'    = $insightsIa + @('app.opiniao.gerar')
     # Diario de sinais (paper trading): registrar sem --data ja recupera
     # sozinho todo pregao sem sinal (contrato ajustado pela Frente C em
     # 2026-09-28); avaliar julga os horizontes que venceram desde entao.
