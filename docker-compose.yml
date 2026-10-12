@@ -98,8 +98,11 @@ services:
     ports:
       - "127.0.0.1:8091:8091"
     environment:
-      SPRING_PROFILES_ACTIVE: dev
+      SPRING_PROFILES_ACTIVE: docker
       SERVER_PORT: 8091
+      DB_URL: jdbc:mysql://mysql:3306/minha_base?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      DB_USERNAME: spring
+      DB_PASSWORD: spring123
       SPRING_JPA_HIBERNATE_DDL_AUTO: validate
 
       AWS_REGION: sa-east-1
@@ -111,9 +114,6 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
 
       LOGGING_LEVEL_ROOT: INFO
-      LOGGING_FILE_NAME: /app/logs/application.log
-    volumes:
-      - ./logs:/app/logs
     networks:
       - observability
     logging:
