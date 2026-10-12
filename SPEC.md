@@ -818,3 +818,65 @@ infra-b3-ecossytem
 3. `gestor#OPRV2-GES-1..5` para expor HTTP.
 4. `painel#OPRV2-PAI-1..9` para a experiência visual.
 5. `OPRV2-INFRA-4..5` para alertas e observabilidade.
+
+---
+
+## Plano OPT: identidade de ativos e cadeia de opções B3 confiável (2026-10-12)
+
+**Status:** EM ANDAMENTO · **Contexto comum para agentes:** a tela `painel#/#/opcoes/{ativo}` chama `gestor#GET /ativos/{simbolo}/opcoes` corretamente, mas a base local mostrou `BVMF3/B3SA3/PETR/VALE/ITUB` sem cadeia e `opcao_b3_diaria` com muitos registros suspeitos (`PIBB`, `BOVA`, `FNAM`, `HGRE`, `HGBS`, `SMAL`) e `data_vencimento = 9999-12-31`. A hipótese operacional é que o ETL classificou instrumentos do COTAHIST como opções usando BDI de forma insuficiente. Até prova contrária, a tabela `opcao_b3_diaria` atual deve ser tratada como **contaminada para UX/decisão**.
+
+### Regras de coordenação entre agentes
+
+- IDs deste plano são reservados. Não renomear `OPT-ETL-*`, `OPT-INFRA-*`, `OPT-GES-*`, `OPT-PAI-*` e `OPT-INS-*`; se uma tarefa for dividida, criar sufixo `.1`, `.2`.
+- Cada aplicação altera apenas seu escopo. ETL não decide operação; gestor não corrige carga; painel não infere opção quando a API disser `SEM_CADEIA_VALIDA`; gerar-insights não consome opções até `OPT-GES-1` estar validado.
+- Não criar comandos manuais novos no ETL. A correção entra na carga COTAHIST/start único, conforme `etl-fundamentos-cvm/AGENTS.md`.
+- A base antiga deve ser saneada por migration/rotina idempotente, não por orientação manual solta ao usuário.
+- Front e gestor devem expor estado vazio explicativo antes de qualquer gráfico/tabela; não mostrar zero como ausência.
+
+### Diagnóstico medido em 2026-10-12
+
+| Métrica observada | Valor/achado |
+|---|---|
+| Registros em `opcao_b3_diaria` | 321.410 |
+| `BVMF%` | 0 |
+| `B3SA%` | 0 |
+| Prefixos suspeitos mais frequentes | `PIBB`, `BOVA`, `FNAM`, `FLMA`, `SMAL`, `HGRE`, `HGBS` |
+| Último pregão observado em registros suspeitos | 2026-10-09 |
+| Exemplo de anomalia | símbolos sem vencimento real com `data_vencimento = 9999-12-31` |
+
+### Métricas obrigatórias a expor
+
+| Métrica | Dono | Consumidores |
+|---|---|---|
+| `totalRegistrosOpcoes` | ETL/gestor | painel, avaliação |
+| `registrosValidos` / `registrosInvalidos` | ETL/gestor | painel, avaliação |
+| `registrosVencimento9999` | ETL/gestor | painel, avaliação |
+| `ativosMonitoradosComCadeia` / `ativosMonitoradosSemCadeia` | gestor | painel |
+| `prefixosSuspeitos` | ETL/gestor | painel, diagnóstico |
+| `ultimoPregaoComOpcoesValidas` | ETL/gestor | painel |
+| `percentualValido` | gestor | painel, avaliação |
+
+### Tarefas por aplicação
+
+| ID | Aplicação | Tarefa | Depende de | Aceite | Status |
+|---|---|---|---|---|---|
+| OPT-INFRA-1 | infra | Evoluir schema de `opcao_b3_diaria` para suportar validação: `ativo_objeto`, `tipo_opcao`, `status_validacao`, `motivo_rejeicao`, índices por ativo/pregão/vencimento/tipo | etl#OPT-ETL-1 | Flyway aplica em banco existente; gestor consegue consultar por `ativo_objeto`; dados antigos não quebram leitura | IMPLEMENTADO — migration `V30__opcao_b3_diaria_validacao.sql` |
+| OPT-INFRA-2 | infra | Saneamento idempotente da carga antiga de opções | OPT-INFRA-1, etl#OPT-ETL-2 | Registros sem vencimento real, strike inválido ou instrumento não-opção deixam de aparecer como cadeia válida; reexecutar não duplica nem perde dados válidos | IMPLEMENTADO — migration `V31__opcao_b3_saneamento_legado.sql` |
+| OPT-INFRA-3 | infra | Registrar métricas/observabilidade de qualidade da cadeia de opções | OPT-INFRA-1 | Logs/consulta de saúde mostram totais válidos, inválidos e motivos por pregão | IMPLEMENTADO — views `vw_opcao_b3_qualidade`, `vw_opcao_b3_qualidade_por_ativo`, `vw_opcao_b3_motivo_validacao` |
+| OPT-ETL-1 | etl | Auditar parser atual do COTAHIST e produzir relatório metrificado dos registros suspeitos | — | Teste/relatório mostra exemplos reais por motivo: vencimento 9999, ETF/FII, strike zero, símbolo sem padrão de opção | PLANEJADO |
+| OPT-ETL-2 | etl | Corrigir classificação de opções reais no COTAHIST, extraindo ativo-objeto, tipo, vencimento e strike pelos campos corretos do layout | OPT-ETL-1, OPT-INFRA-1 | PETR/VALE/ITUB/B3SA aparecem quando existirem opções reais; ETF/FII não entra como opção | PLANEJADO |
+| OPT-ETL-3 | etl | Rejeitar ou marcar registros inválidos com motivo estruturado | OPT-ETL-2 | `data_vencimento = 9999-12-31` e `preco_exercicio <= 0` não são cadeia válida; motivo preservado para diagnóstico | PLANEJADO |
+| OPT-GES-1 | gestor | Consultar opções por `ativo_objeto` e ticker canônico, não por prefixo `LIKE` | OPT-INFRA-1, OPT-ETL-2 | `/ativos/BVMF3/opcoes` normaliza para canônico quando houver identidade; `/ativos/B3SA3/opcoes` não busca por prefixo frágil | PLANEJADO |
+| OPT-GES-2 | gestor | Expor saúde da cadeia de opções (`GET /opcoes/saude` ou rota equivalente) | OPT-GES-1, OPT-INFRA-3 | API retorna métricas obrigatórias e estado `SEM_CADEIA_VALIDA` quando aplicável | PLANEJADO |
+| OPT-PAI-1 | painel | Melhorar estado vazio da tela de opções | OPT-GES-1 | Usuário vê se o problema é ticker antigo, sem cadeia válida, carga ausente ou base inválida | PLANEJADO |
+| OPT-PAI-2 | painel | Painel de qualidade da cadeia na aba Opções/Avaliação | OPT-GES-2 | Mostra válidos, inválidos, vencimento 9999, ativos monitorados com/sem cadeia e prefixos suspeitos | PLANEJADO |
+| OPT-PAI-3 | painel | Filtros operacionais da cadeia válida | OPT-GES-1 | Filtra por vencimento, tipo, negócios, volume, liquidez e distância do strike sem inferir dados ausentes | PLANEJADO |
+| OPT-INS-1 | gerar-insights | Manter fora de escopo decisório até a cadeia estar validada | OPT-GES-2 | Nenhum backtest/sinal operacional usa opções enquanto `percentualValido` e contrato não estiverem aprovados | PLANEJADO |
+
+### Ordem recomendada
+
+1. `etl#OPT-ETL-1` + `infra#OPT-INFRA-1`.
+2. `etl#OPT-ETL-2..3` + `infra#OPT-INFRA-2`.
+3. `gestor#OPT-GES-1..2`.
+4. `painel#OPT-PAI-1..3`.
+5. `gerar-insights#OPT-INS-1` apenas como trava/DEC para não consumir dados prematuramente.
