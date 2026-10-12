@@ -358,7 +358,7 @@ Ponto de partida medido: dados 31/31 com preço, balanço, data de entrega e TTM
 
 | ID | Tarefa | Repos | Critério de aceite | Depende de | Status |
 |---|---|---|---|---|---|
-| TASK-39 | Checagens de dados depois de cada carga (lucro zero com receita, LPA fora da mediana, balanço sem data de entrega, salto sem evento, papel sem CNPJ, BRAPI × COTAHIST) gravadas em `checagem_dados`; severidade ERRO vira ERRO na saúde dos dados | etl, infra (migração nova), gestor | O caso TIMS3 (lucro 0) é pego sozinho; teste de regressão | — | PLANEJADO |
+| TASK-39 | Checagens de dados depois de cada carga (lucro zero com receita, LPA fora da mediana, balanço sem data de entrega, salto sem evento, papel sem CNPJ, BRAPI × COTAHIST) gravadas em `checagem_dados`; severidade ERRO vira ERRO na saúde dos dados | etl, infra (migração nova), gestor | O caso TIMS3 (lucro 0) é pego sozinho; teste de regressão | — | IMPLEMENTADO (2026-10-12): 6 checagens em etl/app/checagens/checagem_dados.py; executar_todas integrado ao fim de cada carga; V29 já aplicado |
 | TASK-40 | Alerta ativo: `checar-saude.ps1` diário lê `/validacao/saude-dados` e avisa por Telegram no estado PROBLEMA; grava `saude_dados_historico` | infra, gestor | Falha provocada chega ao celular (bot criado pelo usuário) | — | PLANEJADO |
 | TASK-41 | Backup fora da máquina (pasta sincronizada ou disco externo), semanal, com restauração mensal testada a partir da cópia | infra | Restauração da cópia registrada na saúde dos dados | — | PLANEJADO |
 | TASK-42 | CI com teste, lint e tipos antes do build nos 5 repositórios; corrigir o teste `>Formulas<` do painel | todos | Pipeline vermelho bloqueia a imagem | — | PLANEJADO |
