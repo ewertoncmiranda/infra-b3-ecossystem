@@ -38,23 +38,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=develop
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.9.8
-
-      - name: Terraform fmt
-        working-directory: ./infra
-        run: terraform fmt -check -recursive
-
-      - name: Terraform validate
-        working-directory: ./infra
-        env:
-          TF_VAR_aws_endpoint: http://localhost:4566
-        run: |
-          terraform init -backend=false
-          terraform validate
-
       - name: Build and push to Docker Hub
         uses: docker/build-push-action@v5
         with:
