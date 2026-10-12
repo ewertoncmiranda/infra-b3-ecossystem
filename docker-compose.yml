@@ -112,10 +112,12 @@ services:
       AWS_SQS_QUEUE_URL: http://localstack:4566/000000000000/tratar-ativos
       BRAPI_API_KEY: ${BRAPI_API_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      INSIDER_IA_URL: http://ia-opiniao:8000
 
       LOGGING_LEVEL_ROOT: INFO
     networks:
       - observability
+      - ia
     logging:
       driver: json-file
       options:
@@ -157,8 +159,10 @@ services:
       LOG_LEVEL: INFO
       RETRY_ATTEMPTS: 3
       RETRY_DELAY: 10
+      IA_URL: http://ia-opiniao:8000
     networks:
       - observability
+      - ia
     logging:
       driver: json-file
       options:
@@ -244,8 +248,36 @@ services:
     environment:
       PORT: 8080
       BACKEND_URL: http://gestor-ativos-brutos:8091
+      IA_URL: http://ia-opiniao:8000
     networks:
       - observability
+      - ia
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Servico de IA: opiniao por horizonte, chat, card e resumo de manchetes.
+  # Rede `ia` (internal): apenas gestor, gerar-insights e painel alcancam este container.
+  # Rede `saida` (bridge): ia-opiniao acessa a API do Gemini. MySQL NAO entra na rede `ia` (NFR-IA-06).
+  # GEMINI_API_KEY vem de .env.ia (git-ignored); sem a chave o servico sobe e trata Gemini como indisponivel.
+  ia-opiniao:
+    image: ewertonmiranda/insider-ia-b3-ecossytem:${B3_IMAGEM_TAG:-develop}
+    container_name: ia-opiniao
+    restart: unless-stopped
+    env_file:
+      - path: ../insider-ia-b3-ecossytem/.env.ia
+        required: false
+    environment:
+      RAG_INDICE: /app/var/rag.sqlite
+      GESTOR_URL: http://gestor-ativos-brutos:8091
+      LOG_LEVEL: INFO
+    volumes:
+      - ia_indice:/app/var
+    networks:
+      - ia
+      - saida
     logging:
       driver: json-file
       options:
@@ -350,7 +382,12 @@ volumes:
   prometheus_data:
   grafana_data:
   logstash_data:
+  ia_indice:
 
 networks:
   observability:
+    driver: bridge
+  ia:
+    internal: true
+  saida:
     driver: bridge
