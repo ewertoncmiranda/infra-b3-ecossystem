@@ -880,3 +880,24 @@ infra-b3-ecossytem
 3. `gestor#OPT-GES-1..2`.
 4. `painel#OPT-PAI-1..3`.
 5. `gerar-insights#OPT-INS-1` apenas como trava/DEC para não consumir dados prematuramente.
+
+---
+
+## Plano SIM: banco de dados do Simulador de Operações (2026-10-12)
+
+**Status:** PLANEJADO · **Contexto:** ver `painel-ativos-frontend/SPEC.md`, Plano SIM. Três novas tabelas suportam o simulador: lista de ativos monitorados, resultados diários por estratégia e análises IA salvas. As operações manuais (simulador_operacao + diário) ficam no gestor por decisão de domínio.
+
+### Regras para agentes
+
+- Migrations em sequência a partir de V33; nunca reutilizar número existente.
+- `simulador_ativo.janela_pregoes` é imutável após cadastro; criar novo registro se quiser mudar.
+- `simulador_ia_analise` tem `UNIQUE(ativo_id, DATE(data_analise))` para cache diário — sem duplicata por dia por ativo.
+- IDs `SIM-INFRA-*` são reservados; não renomear.
+
+### Tarefas desta aplicação
+
+| ID | Tarefa | Migration | Depende | Aceite | Status |
+|---|---|---|---|---|---|
+| SIM-INFRA-1 | Criar `simulador_ativo`: `id`, `simbolo UK`, `janela_pregoes`, `capital_inicial`, `data_inclusao`, `ativo BOOL` | V33 | — | Flyway aplica em banco existente; `UNIQUE(simbolo)`; sem constraint de FK com outras tabelas | IMPLEMENTADO (Sessão 03, 2026-10-12): `mysql-migrations/V33__simulador_ativo.sql`; `UNIQUE(simbolo)`, `CHECK janela 1–252`, `CHECK capital > 0` |
+| SIM-INFRA-2 | Criar `simulador_resultado`: `id`, `ativo_id FK`, `data_pregao`, `versao_estrategia`, `quintil`, `retorno_pct`, `score`, `parametros_json`; e `simulador_operacao`: `id`, `ativo_id FK`, `data_entrada`, `capital`, `versao_estrategia`, `status ENUM(PENDENTE,ABERTA,FECHADA)`; e `simulador_operacao_diario`: `id`, `operacao_id FK`, `data_pregao`, `preco`, `retorno_dia_pct`, `retorno_acum_pct`, `pnl_rs` | V34 | SIM-INFRA-1 | `UNIQUE(ativo_id, data_pregao, versao_estrategia)` em `simulador_resultado`; índice em `operacao_id + data_pregao` | PLANEJADO |
+| SIM-INFRA-3 | Criar `simulador_ia_analise`: `id`, `ativo_id FK`, `data_analise TIMESTAMP`, `dados_entrada_json`, `analise_texto`, `modelo_ia`, `tokens_usados`; `UNIQUE(ativo_id, DATE(data_analise))` | V35 | SIM-INFRA-1 | Cache diário funciona: segunda chamada do mesmo dia reutiliza linha existente sem duplicar | PLANEJADO |
