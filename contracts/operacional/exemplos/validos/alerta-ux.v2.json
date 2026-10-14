@@ -1,0 +1,1 @@
+{ "contrato": "alerta-ux.v2", "payload": { "id": "PETR4:BLOQUEIO_DADO", "ativo": true, "severidade": "ATENCAO", "categoria": "DADO", "simbolo": "PETR4", "titulo": "Dados incompletos", "dataEvento": "2026-10-09", "createdAt": null, "payload": { "motivosBloqueio": [{ "codigo": "SEM_FUNDAMENTO_VIGENTE" }] } } }

@@ -1,0 +1,1 @@
+{ "contrato": "timeline-ativo.v2", "payload": { "eventId": "d312af10-4d3f-4f43-92b0-250266543210", "simbolo": "PETR4", "data": "2026-10-09", "tipo": "BLOQUEIO_DADO", "severidade": "ATENCAO", "categoria": "DADO", "titulo": "Dados incompletos", "payload": { "codigo": "SEM_FUNDAMENTO_VIGENTE" } } }

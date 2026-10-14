@@ -1,0 +1,41 @@
+{
+  "contrato": "diario-avaliado",
+  "motivo": "dataPregao precisa ser data valida",
+  "payload": {
+    "schemaVersion": "1",
+    "eventId": "0f8b8f1e-6a2c-4c55-9a3e-3b1d2c4e5f60",
+    "correlationId": "7d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+    "evento": "operacional.diario-avaliado.v1",
+    "versao_regra": "OPR-2026.10.10-1",
+    "dataPregao": "2026-13-40",
+    "emitidoEm": "2026-10-09T21:30:00-03:00",
+    "modo": "SIMULADO",
+    "aviso": "Operacao simulada (paper trading): nao e ordem nem recomendacao de investimento.",
+    "dados": {
+      "patrimonio": 100412.35,
+      "caixa": 82000.0,
+      "exposicao": 0.1834,
+      "posicoes_abertas": 3,
+      "operacoes_abertas_dia": 1,
+      "operacoes_fechadas_dia": 0,
+      "retorno_bruto_dia": 0.0021,
+      "retorno_liquido_dia": 0.0019,
+      "retorno_liquido_acumulado": 0.0041,
+      "cdi_acumulado": 0.0035,
+      "cdi_liquido_ir_acumulado": 0.0027,
+      "excesso_sobre_cdi_liquido": 0.0014,
+      "drawdown": -0.012,
+      "drawdown_maximo": -0.031,
+      "violacoes_liquidez": 0,
+      "pregoes_avaliados": 12,
+      "status_sistema": "EM_OBSERVACAO",
+      "status_anterior": "NAO_OPERAVEL",
+      "motivos_status": [
+        {
+          "codigo": "AMOSTRA_INSUFICIENTE",
+          "descricao": "12 de 63 pregoes avaliados"
+        }
+      ]
+    }
+  }
+}

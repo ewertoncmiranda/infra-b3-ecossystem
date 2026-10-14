@@ -1,0 +1,393 @@
+services:
+
+  localstack:
+    image: localstack/localstack:3.3
+    container_name: localstack
+    restart: unless-stopped
+    environment:
+      SERVICES: sqs,s3,sns
+      EDGE_PORT: 4566
+      AWS_DEFAULT_REGION: sa-east-1
+      DEBUG: 1
+    ports:
+      - "127.0.0.1:4566:4566"
+    volumes:
+      - localstack_data:/var/lib/localstack
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD", "awslocal", "sqs", "list-queues"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  my-terraform-provisioner:
+    build:
+      context: ./infra
+    container_name: my-terraform-provisioner
+    working_dir: /infra
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: sa-east-1
+      TF_VAR_aws_endpoint: http://localstack:4566
+      TF_STATE_PATH: /estado/terraform.tfstate
+    # Estado fora do container: recriar o provisionador (imagem nova) nao pode
+    # perder o estado e tentar recriar filas/buckets que ja existem (409).
+    volumes:
+      - terraform_estado:/estado
+    depends_on:
+      localstack:
+        condition: service_healthy
+    networks:
+      - observability
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: minha_base
+      MYSQL_USER: spring
+      MYSQL_PASSWORD: spring123
+    ports:
+      - "127.0.0.1:3305:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  db-migrate:
+    image: flyway/flyway:10.17.0
+    container_name: db-migrate
+    command:
+      - -url=jdbc:mysql://mysql:3306/minha_base?allowPublicKeyRetrieval=true&useSSL=false
+      - -user=spring
+      - -password=spring123
+      - -baselineOnMigrate=true
+      - -baselineVersion=1
+      - migrate
+    volumes:
+      - ./mysql-migrations:/flyway/sql:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - observability
+
+  gestor-ativos-brutos:
+    image: ewertonmiranda/gestor-ativos-brutos:${B3_IMAGEM_TAG:-develop}
+    container_name: gestor-ativos-brutos
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+      my-terraform-provisioner:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:8091:8091"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8091
+      DB_URL: jdbc:mysql://mysql:3306/minha_base?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      DB_USERNAME: spring
+      DB_PASSWORD: spring123
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+
+      AWS_REGION: sa-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_SQS_ENDPOINT_BASE: http://localstack:4566
+      AWS_SQS_QUEUE_URL: http://localstack:4566/000000000000/tratar-ativos
+      BRAPI_API_KEY: ${BRAPI_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      INSIDER_IA_URL: http://ia-opiniao:8000
+
+      LOGGING_LEVEL_ROOT: INFO
+    networks:
+      - observability
+      - ia
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  gerar-insights:
+    image: ewertonmiranda/gerar-insights:${B3_IMAGEM_TAG:-develop}
+    container_name: gerar-insights
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+      my-terraform-provisioner:
+        condition: service_completed_successfully
+    environment:
+      ENVIRONMENT: docker
+
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: spring
+      DB_PASS: spring123
+      DB_NAME: minha_base
+
+      LOCALSTACK_ENDPOINT: http://localstack:4566
+      AWS_REGION: sa-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+
+      QUEUE_NAME: tratar-ativos
+      QUEUE_URL: http://localstack:4566/000000000000/tratar-ativos
+      HISTORICAL_SERIES_QUEUE_NAME: sqs-registrar-series-historicas
+      HISTORICAL_SERIES_QUEUE_URL: http://localstack:4566/000000000000/sqs-registrar-series-historicas
+
+      LOG_LEVEL: INFO
+      RETRY_ATTEMPTS: 3
+      RETRY_DELAY: 10
+      IA_URL: http://ia-opiniao:8000
+    networks:
+      - observability
+      - ia
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Job em lote, nao servico: carrega fundamentos da CVM no MySQL e encerra.
+  # Fica fora do `docker compose up` normal (profile "etl"); rode sob demanda com
+  #   docker compose --profile etl run --rm etl-fundamentos-cvm
+  # O agendamento (semanal basta: DFP sai 1x/ano, ITR 4x/ano) fica no cron do
+  # host ou no GitHub Actions, nao num container dormindo.
+  etl-fundamentos-cvm:
+    image: ewertonmiranda/etl-fundamentos-cvm:${B3_IMAGEM_TAG:-develop}
+    container_name: etl-fundamentos-cvm
+    # Job, nao servico: fica de fora do `docker compose up` normal (profile
+    # "etl"). O unico orquestrador e a rotina da manha (scripts/cargas-etl.ps1,
+    # via Agendador de Tarefas), que chama `run` com os argumentos de cada
+    # etapa - por isso nenhum `command` fixo aqui. Cargas avulsas continuam
+    # possiveis:
+    #   docker compose -f <arquivo> --profile etl run --rm --no-deps etl-fundamentos-cvm --ano 2024 --forcar
+    profiles: ["etl"]
+    restart: "no"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+      my-terraform-provisioner:
+        condition: service_completed_successfully
+    environment:
+      ENVIRONMENT: docker
+
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: spring
+      DB_PASS: spring123
+      DB_NAME: minha_base
+
+      LOCALSTACK_ENDPOINT: http://localstack:4566
+      AWS_REGION: sa-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+
+      FUNDAMENTOS_QUEUE_NAME: sqs-fundamentos-atualizados
+      FUNDAMENTOS_QUEUE_URL: http://localstack:4566/000000000000/sqs-fundamentos-atualizados
+      COMUNICADOS_QUEUE_NAME: sqs-comunicados-publicados
+
+      CVM_BASE_URL: https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC
+      # Janela estreita de proposito: a rota de fundamentos serve o exercicio
+      # mais recente, entao carregar 7 anos so gasta banda e tempo. Alargue
+      # quando a serie historica de indicadores for exposta.
+      CVM_ANOS: "2024-2025"
+      CVM_CACHE_DIR: /var/cache/cvm
+      # COTAHIST (~90 MB/ano) no mesmo volume: ano fechado nao e baixado de novo.
+      B3_CACHE_DIR: /var/cache/cvm/b3
+
+      LOG_LEVEL: INFO
+      RETRY_ATTEMPTS: 3
+      RETRY_DELAY: 10
+    volumes:
+      # Mantem os ZIPs ja baixados entre execucoes; com o ETag gravado em
+      # etl_execucao, um run sem novidade custa 3 requisicoes HEAD.
+      - cvm_cache:/var/cache/cvm
+    networks:
+      - observability
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  painel-ativos-frontend:
+    image: ewertonmiranda/front-end-monitoramento-b3:${B3_IMAGEM_TAG:-develop}
+    container_name: painel-ativos-frontend
+    restart: always
+    depends_on:
+      gestor-ativos-brutos:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8082:8080"
+    environment:
+      PORT: 8080
+      BACKEND_URL: http://gestor-ativos-brutos:8091
+      IA_URL: http://ia-opiniao:8000
+    networks:
+      - observability
+      - ia
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Servico de IA: opiniao por horizonte, chat, card e resumo de manchetes.
+  # Rede `ia` (internal): apenas gestor, gerar-insights e painel alcancam este container.
+  # Rede `saida` (bridge): ia-opiniao acessa a API do Gemini. MySQL NAO entra na rede `ia` (NFR-IA-06).
+  # GEMINI_API_KEY vem de .env.ia (git-ignored); sem a chave o servico sobe e trata Gemini como indisponivel.
+  ia-opiniao:
+    image: ewertonmiranda/insider-ia-b3-ecossytem:${B3_IMAGEM_TAG:-develop}
+    container_name: ia-opiniao
+    restart: unless-stopped
+    env_file:
+      - path: ../insider-ia-b3-ecossytem/.env.ia
+        required: false
+    environment:
+      RAG_INDICE: /app/var/rag.sqlite
+      GESTOR_URL: http://gestor-ativos-brutos:8091
+      LOG_LEVEL: INFO
+    volumes:
+      - ia_indice:/app/var
+    networks:
+      - ia
+      - saida
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
+    container_name: elasticsearch
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.14.0
+    container_name: logstash
+    profiles: ["observability"]
+    restart: unless-stopped
+    volumes:
+        - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+        - ./logs:/logs:ro
+        - logstash_data:/usr/share/logstash/data
+    ports:
+      - "127.0.0.1:5000:5000/tcp"
+      - "127.0.0.1:5000:5000/udp"
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - observability
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.14.0
+    container_name: kibana
+    profiles: ["observability"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - observability
+
+  prometheus:
+    image: prom/prometheus:v2.53.1
+    container_name: prometheus
+    profiles: ["observability"]
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    networks:
+      - observability
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: grafana
+    profiles: ["observability"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - observability
+
+volumes:
+  mysql_data:
+  localstack_data:
+  terraform_estado:
+  cvm_cache:
+  elasticsearch_data:
+  prometheus_data:
+  grafana_data:
+  logstash_data:
+  ia_indice:
+
+networks:
+  observability:
+    driver: bridge
+  ia:
+    internal: true
+  saida:
+    driver: bridge

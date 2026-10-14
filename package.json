@@ -1,0 +1,13 @@
+{
+  "name": "infra-b3-contratos",
+  "private": true,
+  "type": "module",
+  "description": "Teste de contrato dos JSON Schemas de contracts/ (OPR-INFRA-2). So ferramenta de teste: nada roda em producao.",
+  "scripts": {
+    "test": "node scripts/testar-contratos.mjs"
+  },
+  "devDependencies": {
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1"
+  }
+}
