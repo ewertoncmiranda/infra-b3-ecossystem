@@ -54,6 +54,9 @@ $passos = [ordered]@{
     # 2026-09-28); avaliar julga os horizontes que venceram desde entao.
     'diario de sinais: registrar' = $insights + @('app.validacao.diario', 'registrar')
     'diario de sinais: avaliar'   = $insights + @('app.validacao.diario', 'avaliar')
+    # Estratégias do simulador (SIM-INS-1): MOMENTO_PURO calcula retorno 12-1 meses
+    # e grava em simulador_resultado para todos os ativos monitorados.
+    'estratégias do simulador'   = $insights + @('app.simulador')
 }
 # Backtest semanal: o placar muda devagar e roda em segundos.
 if ((Get-Date).DayOfWeek -eq 'Friday') {

@@ -12,8 +12,3 @@ scrape_configs:
     static_configs:
       - targets:
           - "gestor-ativos-brutos:8091"
-
-  - job_name: "gerar-insights"
-    static_configs:
-      - targets:
-          - "gerar-insights:8080"

@@ -1,0 +1,13 @@
+{
+  "contrato": "snapshot-ticker.v2",
+  "payload": {
+    "schemaVersion": "operacional.snapshot-ticker.v2", "simbolo": "PETR4", "dataPregao": "2026-10-09",
+    "versaoRegra": "OPR-2026.10.10-1", "statusOperacional": "EM_OBSERVACAO", "faixaLiquidez": "ALTA",
+    "setorGrupo": "PETROLEO", "sinalPrincipal": "SINAL_POSITIVO",
+    "sinalTecnico": { "momentum": null, "reversao": "NEUTRO_TECNICO" }, "sinalV2Sombra": null,
+    "opiniaoIa": null, "confiancaScore": null, "confiancaFaixa": "NAO_CALIBRADA", "posicao": null,
+    "ultimoEvento": null, "motivosBloqueio": [],
+    "consenso": { "direcaoAnalitica": "POSITIVA", "operabilidade": "OPERAVEL", "resumo": "Sinais positivos", "sinais": [], "divergencias": [] },
+    "tese": { "aviso": "Simulação para estudo, não é recomendação de investimento.", "positivos": [], "negativos": [], "riscos": [], "invalidadores": [], "dadosAusentes": [] }
+  }
+}
