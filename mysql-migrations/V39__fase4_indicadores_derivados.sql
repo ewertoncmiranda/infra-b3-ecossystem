@@ -1,9 +1,8 @@
 -- V39: indicadores derivados da fase 4 do ETL de fundamentos CVM
 --
 -- indicador_fundamentalista
---   I5 insumos:
---     ativo_circulante   DECIMAL(24,2) — BPA 1.01
---     passivo_circulante DECIMAL(24,2) — BPP 2.01
+--   I5 insumos ativo_circulante e passivo_circulante ja existem desde a V16;
+--   recria-los aqui falhava com coluna duplicada e a V39 nunca era aplicada.
 --   I1 derivado:
 --     cobertura_juros    DECIMAL(14,4) — EBIT / |resultado_financeiro| (RF < 0)
 --   I5 derivados:
@@ -18,9 +17,7 @@
 -- nao exige coluna nova.
 
 ALTER TABLE indicador_fundamentalista
-    ADD COLUMN ativo_circulante   DECIMAL(24, 2) NULL COMMENT 'BPA 1.01 — fase 4 I5 insumo',
-    ADD COLUMN passivo_circulante DECIMAL(24, 2) NULL COMMENT 'BPP 2.01 — fase 4 I5 insumo',
-    ADD COLUMN cobertura_juros    DECIMAL(14, 4) NULL COMMENT 'EBIT / |RF| (RF<0) — fase 4 I1',
+    ADD COLUMN cobertura_juros   DECIMAL(14, 4) NULL COMMENT 'EBIT / |RF| (RF<0) — fase 4 I1',
     ADD COLUMN liquidez_corrente  DECIMAL(10, 4) NULL COMMENT 'AC / PC — fase 4 I5',
     ADD COLUMN liquidez_seca      DECIMAL(10, 4) NULL COMMENT '(AC-Estoques) / PC — fase 4 I5',
     ADD COLUMN dso                DECIMAL(10, 2) NULL COMMENT 'prazo medio recebimento dias — fase 4 I6',
