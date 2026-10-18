@@ -901,3 +901,104 @@ infra-b3-ecossytem
 | SIM-INFRA-1 | Criar `simulador_ativo`: `id`, `simbolo UK`, `janela_pregoes`, `capital_inicial`, `data_inclusao`, `ativo BOOL` | V33 | — | Flyway aplica em banco existente; `UNIQUE(simbolo)`; sem constraint de FK com outras tabelas | IMPLEMENTADO (Sessão 03, 2026-10-12): `mysql-migrations/V33__simulador_ativo.sql`; `UNIQUE(simbolo)`, `CHECK janela 1–252`, `CHECK capital > 0` |
 | SIM-INFRA-2 | Criar `simulador_resultado`: `id`, `ativo_id FK`, `data_pregao`, `versao_estrategia`, `quintil`, `retorno_pct`, `score`, `parametros_json`; e `simulador_operacao`: `id`, `ativo_id FK`, `data_entrada`, `capital`, `versao_estrategia`, `status ENUM(PENDENTE,ABERTA,FECHADA)`; e `simulador_operacao_diario`: `id`, `operacao_id FK`, `data_pregao`, `preco`, `retorno_dia_pct`, `retorno_acum_pct`, `pnl_rs` | V34 | SIM-INFRA-1 | `UNIQUE(ativo_id, data_pregao, versao_estrategia)` em `simulador_resultado`; índice em `operacao_id + data_pregao` | IMPLEMENTADO (2026-10-12): `mysql-migrations/V34__simulador_resultado_operacao.sql`; 3 tabelas com FK CASCADE, CHECKs e índices compostos |
 | SIM-INFRA-3 | Criar `simulador_ia_analise`: `id`, `ativo_id FK`, `data_analise TIMESTAMP`, `dados_entrada_json`, `analise_texto`, `modelo_ia`, `tokens_usados`; `UNIQUE(ativo_id, DATE(data_analise))` | V35 | SIM-INFRA-1 | Cache diário funciona: segunda chamada do mesmo dia reutiliza linha existente sem duplicar | IMPLEMENTADO (2026-10-12): `mysql-migrations/V35__simulador_ia_analise.sql`; `UNIQUE(ativo_id, DATE(data_analise))` via índice funcional |
+
+---
+
+## Plano CARGA: entrada única, status confiável e controle das cargas do ETL (2026-10-18)
+
+**Status:** PLANEJADO · **Rótulos:** `CARGA-INFRA-*` (este hub), `CARGA-ETL-*` (`etl-fundamentos-cvm/SPEC.md`), `CARGA-GES-*` (`gestor-ativos-brutos/SPEC.md`), `CARGA-PAI-*` (`painel-ativos-frontend/SPEC.md`). IDs reservados; não renomear nem reaproveitar.
+
+### Problema
+
+1. **Status não confiável.** No `main.py` do ETL, COTAHIST, TTM, proventos (DVA) e eventos passam por `_sem_erro`, que descarta o resultado: só exceção vira falha. Erro nas opções do COTAHIST (`erros_opcoes`) e ano processado sem nenhuma linha gravada aparecem como sucesso.
+2. **Sem registro da carga.** `etl_execucao` é por arquivo (fonte, competência, ETag, linhas) e serve para pular arquivo inalterado. Nada responde "quando foi a última carga, se deu certo e o que entrou".
+3. **Duas orquestrações** quase iguais (`_rotina` e `_carregar_tudo`) e disparo só pela rotina da manhã (`scripts/cargas-etl.ps1` + `docker compose run`).
+
+### DEC-CARGA-1 — onde fica a entrada única (APROVADA pelo usuário em 2026-10-18)
+
+Decisão: **o próprio ETL vira serviço HTTP interno, atrelado ao docker compose** (sobe com a stack, sem porta pública) e o endpoint passa a ser o start único dele (DEC-AGT-1): `rotina`/`completa`/anos/símbolos deixam de ser flags e viram parâmetros de `POST /cargas`. O gestor é a fachada para o painel (o painel só fala com o gestor). Alternativas descartadas por ora: endpoint no gestor publicando em SQS (mais peças, status volta pela fila) e manter o job só registrando status (não atende "um endpoint que dispara"). **CARGA-ETL-1 não depende desta decisão** e pode ser feita antes.
+
+### Contrato canônico
+
+**Migration `V44__controle_de_cargas.sql` (dona: infra).**
+
+| Tabela/campo | Tipo/regra |
+|---|---|
+| `carga_execucao.id` | `CHAR(36)` PK (UUID gerado pelo ETL) |
+| `carga_execucao.tipo` | `ROTINA`, `COMPLETA` ou `PARCIAL` |
+| `carga_execucao.solicitada_por` | `ROTINA_MANHA`, `PAINEL` ou `API` |
+| `carga_execucao.parametros_json` | `JSON`: `{ anos, simbolos, etapas, forcar }` |
+| `carga_execucao.status` | `PENDENTE`, `EXECUTANDO`, `SUCESSO`, `SUCESSO_COM_ALERTA`, `SUCESSO_PARCIAL`, `FALHA` ou `INTERROMPIDA` |
+| `carga_execucao.versao_etl` | `VARCHAR(40)`: tag da imagem/commit |
+| `carga_execucao.criada_em` / `iniciada_em` / `finalizada_em` | `DATETIME` (UTC); `duracao_ms BIGINT` |
+| `carga_execucao.etapas_ok` / `etapas_alerta` / `etapas_falha` | `INT` |
+| `carga_execucao.mensagem_erro` | `TEXT` (falha fora das etapas: lock, banco, configuração) |
+| `carga_etapa.id` | `BIGINT` PK; `execucao_id` FK `ON DELETE CASCADE`; UK (`execucao_id`, `etapa`) |
+| `carga_etapa.ordem` / `etapa` | ordem de execução e código do catálogo abaixo |
+| `carga_etapa.status` | `PENDENTE`, `EXECUTANDO`, `SUCESSO`, `SEM_MUDANCA`, `ALERTA`, `FALHA` ou `PULADA` |
+| `carga_etapa.iniciada_em` / `finalizada_em` / `duracao_ms` | tempos da etapa |
+| `carga_etapa.metricas_json` | o que foi carregado: `{ anos_processados, anos_sem_mudanca, lidos, gravados, rejeitados, rejeitados_por_motivo, ... }` |
+| `carga_etapa.alertas_json` / `erros_json` | listas de mensagens |
+| `etl_execucao.carga_execucao_id` | `CHAR(36) NULL`, FK `ON DELETE SET NULL`: liga cada arquivo baixado à carga |
+| `vw_carga_ultima` | por etapa: `ultima_tentativa_em`, `ultimo_status`, `ultimo_sucesso_em`, `execucao_id` de cada |
+
+Retenção: execuções nunca são apagadas pelo ETL; limpeza futura é decisão separada.
+
+**Catálogo de etapas (ordem):** `COTAHIST`, `LIQUIDEZ`, `PRONTIDAO`, `QUALIDADE_OPCOES`, `CONCILIACAO`, `DFP`, `TTM`, `IPE`, `DVA`, `EVENTOS`, `CHECAGENS` (a V44 recusa qualquer outro valor). `ROTINA` = todas exceto `EVENTOS`, no ano atual (e anterior onde já é assim hoje); `COMPLETA` = todas, últimos 5 anos; `PARCIAL` = etapas/anos/símbolos informados (a rotina da manhã usa `PARCIAL` com `etapas: ["EVENTOS"]` uma vez por mês). `CONCILIACAO` (brapi × COTAHIST, `vw_conciliacao_preco`) com divergência grave é `FALHA` da etapa.
+
+**Regras de status por etapa** (a partir dos resultados que os casos de uso já devolvem):
+
+| Etapa | Regra |
+|---|---|
+| COTAHIST | `FALHA` se `erros_opcoes` não vazio ou se algum ano processado gravou 0 candles; `SEM_MUDANCA` se todos os anos foram pulados por ETag igual |
+| TTM / DVA | `ALERTA` se processou ano e gravou 0 indicadores/períodos; `SEM_MUDANCA` se tudo pulado por ETag |
+| DFP / IPE | `FALHA` se `erros` não vazio (como hoje) |
+| EVENTOS | 0 gravados é `SUCESSO` (não houve evento novo); rejeições vão para métricas |
+| qualquer | exceção = `FALHA` com a mensagem |
+
+**Status da execução:** `SUCESSO` (só SUCESSO/SEM_MUDANCA/PULADA); `SUCESSO_COM_ALERTA` (há ALERTA, nenhuma FALHA); `SUCESSO_PARCIAL` (há FALHA, mas nem todas falharam); `FALHA` (todas falharam ou erro antes das etapas); `INTERROMPIDA` (processo caiu; marcada no próximo start).
+
+**Serviço do ETL no compose (fixado pela CARGA-INFRA-2):** entrypoint `python -m app.servidor` (módulo que a CARGA-ETL-4 cria; o compose não usa o ENTRYPOINT da imagem, que roda a carga completa), porta interna `ETL_HTTP_PORT=8080`, publicada só em `127.0.0.1:8097` (rotina da manhã no host); o gestor usa `ETL_URL=http://etl-fundamentos-cvm:8080`. Com `ETL_TOKEN` definido, toda chamada exige o cabeçalho `X-ETL-Token`. `ETL_VERSAO` vai para `carga_execucao.versao_etl`. Health check: `GET /saude` responde 200.
+
+**JSON da API do ETL (snake_case):** execução = `{ id, tipo, solicitada_por, parametros, status, versao_etl, criada_em, iniciada_em, finalizada_em, duracao_ms, etapas_ok, etapas_alerta, etapas_falha, mensagem_erro, etapas: [{ etapa, ordem, status, iniciada_em, finalizada_em, duracao_ms, metricas, alertas: [texto], erros: [texto] }], arquivos: [{ fonte, competencia, arquivo, etag, linhas_carregadas, status }] }`. O 409 do `POST /cargas` traz `{ execucao_em_andamento: <id> }`. O gestor expõe o mesmo conteúdo em camelCase para o painel.
+
+**API do ETL (rede interna; porta publicada só em `127.0.0.1`; token opcional por env `ETL_TOKEN`):**
+
+| Método e rota | Contrato |
+|---|---|
+| `POST /cargas` | corpo `{ tipo, anos?, simbolos?, etapas?, forcar?, solicitada_por }` → **202** `{ id, status: "PENDENTE" }`; **409** `{ execucao_em_andamento }` se já houver carga rodando (lock `GET_LOCK` + status) |
+| `GET /cargas/{id}` | execução + etapas + arquivos (`etl_execucao`) |
+| `GET /cargas?limite=&status=` | histórico, mais recente primeiro |
+| `GET /cargas/ultimas` | conteúdo de `vw_carga_ultima` |
+| `GET /saude` | serviço de pé e execução em andamento, se houver |
+
+**API do gestor (fachada do painel):** `GET /cargas`, `GET /cargas/{id}`, `GET /cargas/ultimas` leem as tabelas (GET sem efeito colateral); `POST /cargas` repassa ao ETL com `solicitada_por=PAINEL` e devolve 202/409/503 sem reinterpretar.
+
+### Tarefas da infraestrutura
+
+| ID | Tarefa | Arquivos | Depende | Aceite | Status |
+|---|---|---|---|---|---|
+| CARGA-INFRA-1 | Migration de controle de cargas | `mysql-migrations/V44__controle_de_cargas.sql` | contrato acima | Tabelas, FKs, coluna em `etl_execucao` e `vw_carga_ultima` conforme contrato; aditiva, não altera dados existentes; validada em banco novo e em upgrade | IMPLEMENTADO (2026-10-18): banco novo (40 migrations da develop + V44) e upgrade do banco local (v43 → v44) aplicados; view, `SET NULL`, cascata e os 5 CHECKs testados — ver `docs/carga/CARGA-INFRA-1.md` |
+| CARGA-INFRA-2 | ETL como serviço interno no compose | `docker-compose.yml` | DEC-CARGA-1 | Serviço sai do profile `etl`, `restart: unless-stopped`, entrypoint `python -m app.servidor`, porta só em `127.0.0.1:8097`, health check em `/saude`, `ETL_TOKEN`/`ETL_VERSAO` por env; gestor recebe `ETL_URL`/`ETL_TOKEN` | IMPLEMENTADO (2026-10-18): `docker compose config` válido. **Só mesclar/implantar depois da imagem com a CARGA-ETL-4**; antes disso o container falha ao subir (sem carregar nada). O `docker-compose-local.yml` (local, com chaves) precisa da mesma mudança à mão |
+| CARGA-INFRA-3 | Rotina da manhã dispara `POST /cargas` | `scripts/cargas-etl.ps1` | CARGA-INFRA-2 | Script chama `POST /cargas` (`tipo=ROTINA`, `solicitada_por=ROTINA_MANHA`), acompanha `GET /cargas/{id}` até terminar e sai com código ≠ 0 em `FALHA`/`SUCESSO_PARCIAL`/`INTERROMPIDA`; 409 espera a carga em andamento e pede de novo; eventos corporativos mensais via `PARCIAL`; sem flags de CLI do ETL | IMPLEMENTADO (2026-10-18): testado contra um ETL simulado (409 + sucesso com alerta, falha parcial, ETL fora do ar). Corrige a rotina, que hoje chama flags inexistentes no `main.py` (`--comunicados`, `--ttm`, `--cotahist`, `--conciliar`, `--eventos-corporativos`) |
+| CARGA-INFRA-4 | Backfill e documentação sem o profile `etl` | `scripts/backfill-historico.ps1`, `PROXIMOS-PASSOS.md`, `PLANO-ATUALIZACAO-DIARIA.md` | CARGA-INFRA-2 | `backfill-historico.ps1` pede `POST /cargas` (`COMPLETA` ou `PARCIAL` com anos) em vez de `--profile etl run`; documentos sem comandos de CLI do ETL | PLANEJADO |
+
+### Ordem e paralelismo
+
+| Onda | Tarefas | Observação |
+|---|---|---|
+| 0 | CARGA-ETL-1 | Independe de tudo; corrige o status já no job atual |
+| 1 | CARGA-INFRA-1 | Contrato de banco congelado antes do código |
+| 2 | CARGA-ETL-2 | ETL registra cada carga no banco, ainda disparado pela rotina atual |
+| 3 | CARGA-GES-1 e CARGA-PAI-1..2 em paralelo (repositórios distintos) | Leitura: o painel já mostra cargas, etapas e erros; programa contra o contrato e mostra "sem dado" até o gestor entrar |
+| 4 | CARGA-ETL-3, CARGA-ETL-4, CARGA-INFRA-2..3, CARGA-GES-2, CARGA-PAI-3..4 | Disparo: API do ETL, troca do start único e botão no painel; **só após DEC-CARGA-1 aprovada** |
+| 5 | CARGA-GES-3, CARGA-PAI-5 | Saúde dos dados e avisos de defasagem |
+
+Regras: um agente por repositório por vez; tarefas do mesmo repositório em sequência; nenhum agente edita SPEC durante a implementação (status em `docs/carga/<ID>.md`, como no Plano F360).
+
+### Aceite integrado
+
+1. Uma etapa que grava 0 linhas ou falha nas opções aparece como `ALERTA`/`FALHA`, nunca como sucesso.
+2. Cada disparo (rotina, painel) gera uma `carga_execucao` com etapas, métricas, alertas, erros e arquivos; o painel mostra a última tentativa e o último sucesso de cada etapa.
+3. Duas cargas não rodam ao mesmo tempo (409); queda do processo deixa a execução `INTERROMPIDA`, não `EXECUTANDO` para sempre.
+4. Nenhum comando ou flag manual novo; o ETL tem uma única entrada.
