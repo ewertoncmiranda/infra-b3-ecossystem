@@ -11,6 +11,12 @@
 # requisicao HEAD. Com a CVM fora do ar, o ETL segue com o cache e avisa.
 # Cada passo e idempotente: rodar de novo (recuperacao apos maquina desligada
 # ou passo anterior falhar) nao duplica nada.
+#
+# Cargas do ETL (Plano CARGA, CARGA-INFRA-3): o ETL e um servico interno do
+# compose e a entrada unica e POST /cargas. A rotina pede uma carga ROTINA,
+# acompanha GET /cargas/{id} ate terminar e soma nas falhas quando o status
+# final e FALHA, SUCESSO_PARCIAL ou INTERROMPIDA. Etapas, metricas, alertas e
+# erros ficam em carga_execucao/carga_etapa (tela Cargas de dados no painel).
 
 . (Join-Path $PSScriptRoot 'comum.ps1')
 $log = 'cargas-etl.log'
@@ -20,8 +26,101 @@ if (-not (Garantir-Stack)) {
     exit 1
 }
 
-$ano = (Get-Date).Year
-$etl = @('--profile', 'etl', 'run', '--rm', '--no-deps', 'etl-fundamentos-cvm')
+$etlUrl = if ($env:ETL_URL_HOST) { $env:ETL_URL_HOST } else { 'http://127.0.0.1:8097' }
+$limiteCargaMin = if ($env:B3_CARGA_TIMEOUT_MIN) { [int]$env:B3_CARGA_TIMEOUT_MIN } else { 240 }
+$intervaloSeg = 15
+$statusEmAndamento = @('PENDENTE', 'EXECUTANDO')
+$statusComFalha = @('FALHA', 'SUCESSO_PARCIAL', 'INTERROMPIDA')
+
+# Chamada a API de cargas. Devolve @{ Status = <HTTP ou 0 sem conexao>; Corpo = <objeto ou $null> }.
+function Chamar-Etl([string]$Metodo, [string]$Caminho, $Corpo = $null) {
+    $cabecalhos = @{}
+    if ($env:ETL_TOKEN) { $cabecalhos['X-ETL-Token'] = $env:ETL_TOKEN }
+    $parametros = @{ Uri = "$etlUrl$Caminho"; Method = $Metodo; Headers = $cabecalhos; UseBasicParsing = $true; TimeoutSec = 30 }
+    if ($null -ne $Corpo) {
+        $parametros['Body'] = [Text.Encoding]::UTF8.GetBytes(($Corpo | ConvertTo-Json -Depth 5 -Compress))
+        $parametros['ContentType'] = 'application/json; charset=utf-8'
+    }
+    try {
+        $resposta = Invoke-WebRequest @parametros
+        $texto = [Text.Encoding]::UTF8.GetString($resposta.RawContentStream.ToArray())
+        return @{ Status = [int]$resposta.StatusCode; Corpo = $(if ($texto) { $texto | ConvertFrom-Json } else { $null }) }
+    } catch [System.Net.WebException] {
+        $r = $_.Exception.Response
+        if (-not $r) { return @{ Status = 0; Corpo = $null } }
+        $leitor = New-Object System.IO.StreamReader($r.GetResponseStream(), [Text.Encoding]::UTF8)
+        $texto = $leitor.ReadToEnd()
+        $corpoErro = $null
+        try { if ($texto) { $corpoErro = $texto | ConvertFrom-Json } } catch { $corpoErro = $null }
+        return @{ Status = [int]$r.StatusCode; Corpo = $corpoErro }
+    }
+}
+
+# Espera a execucao sair de PENDENTE/EXECUTANDO, registrando cada etapa que muda de status.
+function Aguardar-Carga([string]$Id) {
+    $limite = (Get-Date).AddMinutes($limiteCargaMin)
+    $vistos = @{}
+    while ((Get-Date) -lt $limite) {
+        $r = Chamar-Etl 'GET' "/cargas/$Id"
+        if ($r.Status -eq 200 -and $r.Corpo) {
+            foreach ($etapa in @($r.Corpo.etapas)) {
+                if ($vistos[$etapa.etapa] -ne $etapa.status) {
+                    $vistos[$etapa.etapa] = $etapa.status
+                    if ($etapa.status -notin @('PENDENTE', 'PULADA')) { Escrever-Log $log "  etapa $($etapa.etapa): $($etapa.status)" }
+                }
+            }
+            if ($r.Corpo.status -notin $statusEmAndamento) { return $r.Corpo }
+        } elseif ($r.Status -eq 0) {
+            Escrever-Log $log '  ETL sem resposta durante o acompanhamento; tentando de novo'
+        }
+        Start-Sleep -Seconds $intervaloSeg
+    }
+    return $null
+}
+
+# Pede uma carga, espera terminar e devolve o codigo da rotina (0 ok, 1 falha).
+# Ja havendo carga rodando (409, ex.: disparada pelo painel), espera ela e pede de novo uma vez.
+function Rodar-Carga([string]$Nome, [hashtable]$Pedido) {
+    Escrever-Log $log "inicio: $Nome"
+    $Pedido['solicitada_por'] = 'ROTINA_MANHA'
+    foreach ($tentativa in 1..2) {
+        $r = Chamar-Etl 'POST' '/cargas' $Pedido
+        if ($r.Status -eq 409 -and $tentativa -eq 1) {
+            $outra = $r.Corpo.execucao_em_andamento
+            Escrever-Log $log "  ja existe carga em andamento ($outra); aguardando terminar"
+            if ($outra) { [void](Aguardar-Carga $outra) } else { Start-Sleep -Seconds 60 }
+            continue
+        }
+        break
+    }
+    if ($r.Status -eq 0) {
+        Escrever-Log $log "FALHOU: $Nome (ETL indisponivel em $etlUrl)"
+        return 1
+    }
+    if ($r.Status -ne 202 -or -not $r.Corpo.id) {
+        Escrever-Log $log "FALHOU: $Nome (POST /cargas respondeu HTTP $($r.Status))"
+        return 1
+    }
+    $id = $r.Corpo.id
+    Escrever-Log $log "  carga $id aceita; acompanhando"
+    $final = Aguardar-Carga $id
+    if (-not $final) {
+        Escrever-Log $log "FALHOU: $Nome (carga $id nao terminou em $limiteCargaMin min)"
+        return 1
+    }
+    $resumo = "status $($final.status) | ok $($final.etapas_ok) | alerta $($final.etapas_alerta) | falha $($final.etapas_falha)"
+    foreach ($etapa in @($final.etapas)) {
+        foreach ($a in @($etapa.alertas)) { if ($a) { Escrever-Log $log "  AVISO $($etapa.etapa): $a" } }
+        foreach ($e in @($etapa.erros)) { if ($e) { Escrever-Log $log "  ERRO $($etapa.etapa): $e" } }
+    }
+    if ($final.status -in $statusComFalha) {
+        Escrever-Log $log "FALHOU: $Nome ($resumo)"
+        return 1
+    }
+    Escrever-Log $log "concluido: $Nome ($resumo)"
+    return 0
+}
+
 $insights = @('run', '--rm', '--no-deps', 'gerar-insights', 'python', '-m')
 # Opiniao por horizonte: com o compose do servico de IA (rede `ia`, IA_URL) quando o repositorio
 # insider-ia esta ao lado; sem ele, o lote grava pela regra local (mesma reserva do servico).
@@ -29,16 +128,6 @@ $composeIa = Join-Path $script:Infra '..\insider-ia-b3-ecossytem\compose.ia.yml'
 $insightsIa = if (Test-Path $composeIa) { @('-f', $composeIa) + $insights } else { $insights }
 
 $passos = [ordered]@{
-    'comunicados (IPE)'        = $etl + @('--comunicados')
-    # Balancos da camada Base inteira (universo liquido + cadastrados).
-    'fundamentos (DFP)'        = $etl + @('--ano', "$($ano - 1)", '--ano', "$ano", '--universo-backtest')
-    'ultimos 12 meses (TTM)'   = $etl + @('--ttm', '--ano', "$ano", '--universo-backtest')
-    'preco oficial (COTAHIST)' = $etl + @('--cotahist', '--ano', "$ano")
-    # Conciliacao brapi x COTAHIST (D4/C3): le vw_conciliacao_preco (V15) e
-    # registra CONCILIACAO_BRAPI_B3 em etl_execucao. Sai 3 quando ha
-    # divergencia grave - nao aborta a rotina (o alerta fica no proprio
-    # etl_execucao/saude dos dados), so soma nas falhas reportadas no fim.
-    'conciliacao brapi x B3'   = $etl + @('--conciliar')
     # Camada Base: um insight por pregao para cada ativo, sobre o preco
     # oficial e o lucro da CVM - sem BRAPI (D2, monitoramento em camadas).
     # --recuperar preenche todo pregao do COTAHIST sem insight ainda (limite
@@ -67,20 +156,32 @@ if ((Get-Date).DayOfWeek -eq 'Friday') {
 # referencia do primeiro pregao do mes. Roda quando o COTAHIST ja tem um
 # pregao do mes corrente e fator_valor ainda nao tem referencia nele - nao
 # depende de ligar a maquina num dia certo; o atraso se recupera sozinho.
-# Eventos antes: os fatores ajustam o preco por eles. Requer as imagens
-# com --eventos-corporativos (ETL) e app.fatores (insights) - T-INFRA-03.
+# Eventos antes: os fatores ajustam o preco por eles (eventos = carga PARCIAL
+# do ETL, abaixo; fatores = passo de insights, depois dela).
 $sqlMensal = "SELECT COALESCE((SELECT MIN(data_pregao) FROM cotacao_b3_diaria " +
     "WHERE data_pregao >= DATE_FORMAT(CURDATE(), '%Y-%m-01')) > " +
     "COALESCE((SELECT MAX(data_referencia) FROM fator_valor), '1900-01-01'), 0);"
-if ((Executar-Sql $sqlMensal | Select-Object -First 1) -eq '1') {
+$mensal = (Executar-Sql $sqlMensal | Select-Object -First 1) -eq '1'
+if ($mensal) {
     $mesAnterior = (Get-Date).AddMonths(-1).ToString('yyyy-MM')
-    $passos['eventos corporativos'] = $etl + @('--eventos-corporativos')
     # --desde o mes anterior: refaz o mes passado (idempotente) caso a
     # rodada dele tenha sido antes do COTAHIST fechar o mes.
     $passos['fatores (mensal)'] = $insights + @('app.fatores', 'calcular', '--desde', $mesAnterior)
 }
 
 $falhas = @()
+
+# Cargas do ETL antes dos insights: a ROTINA cobre comunicados (IPE), balancos
+# (DFP), TTM, preco oficial (COTAHIST, com liquidez, prontidao e qualidade das
+# opcoes), conciliacao brapi x B3, proventos (DVA) e checagens. Conciliacao com
+# divergencia grave sai como FALHA da etapa, somando nas falhas sem abortar.
+if ((Rodar-Carga 'cargas do ETL (rotina)' @{ tipo = 'ROTINA' }) -ne 0) {
+    $falhas += 'cargas do ETL (rotina)'
+}
+if ($mensal -and (Rodar-Carga 'eventos corporativos (mensal)' @{ tipo = 'PARCIAL'; etapas = @('EVENTOS') }) -ne 0) {
+    $falhas += 'eventos corporativos (mensal)'
+}
+
 foreach ($nome in $passos.Keys) {
     Escrever-Log $log "inicio: $nome"
     $r = Rodar-Compose $passos[$nome]

@@ -113,6 +113,9 @@ services:
       BRAPI_API_KEY: ${BRAPI_API_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       INSIDER_IA_URL: http://ia-opiniao:8000
+      # Disparo de cargas pelo painel (CARGA-GES-2): repassa POST /cargas ao ETL.
+      ETL_URL: http://etl-fundamentos-cvm:8080
+      ETL_TOKEN: ${ETL_TOKEN:-}
 
       LOGGING_LEVEL_ROOT: INFO
     networks:
@@ -169,22 +172,30 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Job em lote, nao servico: carrega fundamentos da CVM no MySQL e encerra.
-  # Fica fora do `docker compose up` normal (profile "etl"); rode sob demanda com
-  #   docker compose --profile etl run --rm etl-fundamentos-cvm
-  # O agendamento (semanal basta: DFP sai 1x/ano, ITR 4x/ano) fica no cron do
-  # host ou no GitHub Actions, nao num container dormindo.
   etl-fundamentos-cvm:
     image: ewertonmiranda/etl-fundamentos-cvm:${B3_IMAGEM_TAG:-develop}
     container_name: etl-fundamentos-cvm
-    # Job, nao servico: fica de fora do `docker compose up` normal (profile
-    # "etl"). O unico orquestrador e a rotina da manha (scripts/cargas-etl.ps1,
-    # via Agendador de Tarefas), que chama `run` com os argumentos de cada
-    # etapa - por isso nenhum `command` fixo aqui. Cargas avulsas continuam
-    # possiveis:
-    #   docker compose -f <arquivo> --profile etl run --rm --no-deps etl-fundamentos-cvm --ano 2024 --forcar
-    profiles: ["etl"]
-    restart: "no"
+    # Servico HTTP interno (Plano CARGA, DEC-CARGA-1): sobe com a stack e e a
+    # entrada unica das cargas - POST /cargas dispara, GET /cargas/{id}
+    # acompanha (contrato no SPEC, Plano CARGA). A rotina da manha
+    # (scripts/cargas-etl.ps1) e o gestor (painel) so falam com esta API.
+    #
+    # entrypoint explicito de proposito: o ENTRYPOINT antigo da imagem
+    # (`python main.py`, sem argumentos) roda a carga completa de 5 anos, e com
+    # restart ele rodaria em loop. Imagem anterior a CARGA-ETL-4 nao tem
+    # app.servidor: o container so falha ao subir, sem carregar nada.
+    entrypoint: ["python", "-m", "app.servidor"]
+    restart: unless-stopped
+    # So no loopback: a rotina da manha (host) chama 127.0.0.1:8097; o gestor
+    # usa a rede interna (http://etl-fundamentos-cvm:8080). Sem porta publica.
+    ports:
+      - "127.0.0.1:8097:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/saude', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       mysql:
         condition: service_healthy
@@ -224,6 +235,13 @@ services:
       LOG_LEVEL: INFO
       RETRY_ATTEMPTS: 3
       RETRY_DELAY: 10
+
+      # API de cargas (CARGA-ETL-3): porta interna e token opcional (vazio =
+      # sem token; definido, exige o cabecalho X-ETL-Token em toda chamada).
+      ETL_HTTP_PORT: 8080
+      ETL_TOKEN: ${ETL_TOKEN:-}
+      # Gravado em carga_execucao.versao_etl.
+      ETL_VERSAO: ${B3_IMAGEM_TAG:-develop}
     volumes:
       # Mantem os ZIPs ja baixados entre execucoes; com o ETag gravado em
       # etl_execucao, um run sem novidade custa 3 requisicoes HEAD.
