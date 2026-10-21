@@ -18,10 +18,25 @@
 # final e FALHA, SUCESSO_PARCIAL ou INTERROMPIDA. Etapas, metricas, alertas e
 # erros ficam em carga_execucao/carga_etapa (tela Cargas de dados no painel).
 
+# Backfill pela API (CONS-INFRA-3), sem o profile `etl` e sem CLI do ETL:
+#   cargas-etl.ps1 -Backfill                                  COMPLETA (todas as etapas, ultimos 5 anos)
+#   cargas-etl.ps1 -Backfill -Etapas CVM_CADASTRO,TESOURO     PARCIAL das etapas
+#   cargas-etl.ps1 -Backfill -Etapas CVM_FRE -Anos 2022,2023 -Forcar
+#   ... -DryRun    so imprime o corpo JSON do POST /cargas (sem rede, sem stack)
+# Sem -Backfill, roda a rotina da manha (abaixo).
+param(
+    [switch]$Backfill,
+    [string[]]$Etapas = @(),
+    [string[]]$Anos = @(),
+    [string[]]$Simbolos = @(),
+    [switch]$Forcar,
+    [switch]$DryRun
+)
+
 . (Join-Path $PSScriptRoot 'comum.ps1')
 $log = 'cargas-etl.log'
 
-if (-not (Garantir-Stack)) {
+if (-not $DryRun -and -not (Garantir-Stack)) {
     Escrever-Log $log 'FALHOU: stack nao ficou pronta; rotina abortada'
     exit 1
 }
@@ -66,7 +81,10 @@ function Aguardar-Carga([string]$Id) {
             foreach ($etapa in @($r.Corpo.etapas)) {
                 if ($vistos[$etapa.etapa] -ne $etapa.status) {
                     $vistos[$etapa.etapa] = $etapa.status
-                    if ($etapa.status -notin @('PENDENTE', 'PULADA')) { Escrever-Log $log "  etapa $($etapa.etapa): $($etapa.status)" }
+                    if ($etapa.status -notin @('PENDENTE', 'PULADA')) {
+                        Escrever-Log $log "  etapa $($etapa.etapa): $($etapa.status)"
+                        if ($script:ecoConsole) { Write-Host "  etapa $($etapa.etapa): $($etapa.status)" }
+                    }
                 }
             }
             if ($r.Corpo.status -notin $statusEmAndamento) { return $r.Corpo }
@@ -82,7 +100,7 @@ function Aguardar-Carga([string]$Id) {
 # Ja havendo carga rodando (409, ex.: disparada pelo painel), espera ela e pede de novo uma vez.
 function Rodar-Carga([string]$Nome, [hashtable]$Pedido) {
     Escrever-Log $log "inicio: $Nome"
-    $Pedido['solicitada_por'] = 'ROTINA_MANHA'
+    if (-not $Pedido.ContainsKey('solicitada_por')) { $Pedido['solicitada_por'] = 'ROTINA_MANHA' }
     foreach ($tentativa in 1..2) {
         $r = Chamar-Etl 'POST' '/cargas' $Pedido
         if ($r.Status -eq 409 -and $tentativa -eq 1) {
@@ -119,6 +137,93 @@ function Rodar-Carga([string]$Nome, [hashtable]$Pedido) {
     }
     Escrever-Log $log "concluido: $Nome ($resumo)"
     return 0
+}
+
+# Catalogo de etapas aceitas pelo ETL (V44 + V45). Etapa fora dele nunca chega a POST /cargas.
+$etapasAntigas = @('COTAHIST', 'LIQUIDEZ', 'PRONTIDAO', 'QUALIDADE_OPCOES', 'CONCILIACAO', 'DFP', 'TTM', 'IPE', 'DVA', 'EVENTOS', 'CHECAGENS')
+$etapasNovas = @('TESOURO', 'IFDATA', 'CVM_CADASTRO', 'CVM_VLMO', 'CVM_FRE', 'CVM_CDA')
+$catalogoEtapas = $etapasAntigas + $etapasNovas
+
+# Corpo do POST /cargas do backfill: COMPLETA sem etapas, PARCIAL com etapas.
+function Montar-PedidoBackfill([string[]]$Etapas, $Anos, [string[]]$Simbolos, [bool]$Forcar) {
+    $pedido = [ordered]@{ tipo = $(if ($Etapas.Count -gt 0) { 'PARCIAL' } else { 'COMPLETA' }) }
+    if ($Etapas.Count -gt 0) { $pedido['etapas'] = @($Etapas) }
+    if ($Anos.Count -gt 0) { $pedido['anos'] = @($Anos) }
+    if ($Simbolos.Count -gt 0) { $pedido['simbolos'] = @($Simbolos) }
+    if ($Forcar) { $pedido['forcar'] = $true }
+    $pedido['solicitada_por'] = 'API'
+    return $pedido
+}
+
+# Valida etapas contra o catalogo local e, se GET /saude listar as etapas, contra o ETL.
+# Devolve a lista de mensagens de erro (vazia = ok). Em -DryRun nao usa rede.
+function Validar-EtapasBackfill([string[]]$Etapas, [bool]$Seco) {
+    $erros = @()
+    foreach ($e in $Etapas) {
+        if ($e -notin $catalogoEtapas) { $erros += "etapa desconhecida: $e (catalogo: $($catalogoEtapas -join ', '))" }
+    }
+    if ($erros.Count -gt 0 -or $Seco) { return $erros }
+    $s = Chamar-Etl 'GET' '/saude'
+    if ($s.Status -eq 0) { return @("ETL indisponivel em $etlUrl") }
+    $lista = $null
+    if ($s.Corpo) { $lista = $s.Corpo.etapas }
+    if ($lista) {
+        $nomes = @($lista | ForEach-Object { if ($_.etapa) { $_.etapa } else { "$_" } })
+        foreach ($e in $Etapas) {
+            if ($e -notin $nomes) { $erros += "etapa $e nao existe neste ETL (imagem sem FONTES-ETL-8?); GET /saude lista: $($nomes -join ', ')" }
+        }
+    }
+    return $erros
+}
+
+# Dispara o backfill pela API e acompanha ate o fim, imprimindo o status por etapa.
+# Retorna 0 (ok, ou 409 sem erro) ou 1 (falha).
+function Rodar-Backfill([string[]]$Etapas, [string[]]$Anos, [string[]]$Simbolos, [bool]$Forcar, [bool]$Seco) {
+    # Com -File, "A,B" chega como um unico texto: separa por virgula.
+    $Etapas = @($Etapas | ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim().ToUpper() } | Where-Object { $_ })
+    $Simbolos = @($Simbolos | ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim().ToUpper() } | Where-Object { $_ })
+    $Anos = @($Anos | ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    foreach ($a in $Anos) { if ($a -notmatch '^(19|20)\d\d$') { Write-Host "ERRO: ano invalido: $a" -ForegroundColor Red; return 1 } }
+    $anosInt = [int[]]@($Anos | ForEach-Object { [int]$_ })
+    $erros = Validar-EtapasBackfill $Etapas $Seco
+    if ($erros.Count -gt 0) {
+        $erros | ForEach-Object { Write-Host "ERRO: $_" -ForegroundColor Red }
+        return 1
+    }
+    $pedido = Montar-PedidoBackfill $Etapas $anosInt $Simbolos $Forcar
+    if ($Seco) {
+        Write-Host "DRY-RUN: POST $etlUrl/cargas"
+        Write-Host ($pedido | ConvertTo-Json -Depth 5)
+        return 0
+    }
+    $script:ecoConsole = $true
+    Escrever-Log $log "inicio: backfill ($($pedido.tipo) $($Etapas -join ','))"
+    $r = Chamar-Etl 'POST' '/cargas' $pedido
+    if ($r.Status -eq 409) {
+        $msg = "ja existe carga em andamento ($($r.Corpo.execucao_em_andamento)); nada disparado. Acompanhe: GET $etlUrl/cargas/$($r.Corpo.execucao_em_andamento)"
+        Escrever-Log $log "  $msg"
+        Write-Host $msg
+        return 0
+    }
+    if ($r.Status -eq 0) { Write-Host "ERRO: ETL indisponivel em $etlUrl" -ForegroundColor Red; return 1 }
+    if ($r.Status -ne 202 -or -not $r.Corpo.id) { Write-Host "ERRO: POST /cargas respondeu HTTP $($r.Status)" -ForegroundColor Red; return 1 }
+    Write-Host "carga $($r.Corpo.id) aceita; acompanhando (GET $etlUrl/cargas/$($r.Corpo.id))"
+    $final = Aguardar-Carga $r.Corpo.id
+    if (-not $final) { Write-Host "ERRO: carga $($r.Corpo.id) nao terminou em $limiteCargaMin min (segue no ETL)" -ForegroundColor Red; return 1 }
+    foreach ($etapa in @($final.etapas)) {
+        Write-Host ("  {0,-18} {1}" -f $etapa.etapa, $etapa.status)
+        foreach ($a in @($etapa.alertas)) { if ($a) { Write-Host "    AVISO: $a" } }
+        foreach ($e in @($etapa.erros)) { if ($e) { Write-Host "    ERRO: $e" } }
+    }
+    $resumo = "status $($final.status) | ok $($final.etapas_ok) | alerta $($final.etapas_alerta) | falha $($final.etapas_falha)"
+    Escrever-Log $log "fim: backfill ($resumo)"
+    Write-Host $resumo
+    if ($final.status -in $statusComFalha) { return 1 }
+    return 0
+}
+
+if ($Backfill) {
+    exit (Rodar-Backfill $Etapas $Anos $Simbolos $Forcar.IsPresent $DryRun.IsPresent)
 }
 
 $insights = @('run', '--rm', '--no-deps', 'gerar-insights', 'python', '-m')
