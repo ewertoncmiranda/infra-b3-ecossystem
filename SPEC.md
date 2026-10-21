@@ -981,7 +981,7 @@ Retenção: execuções nunca são apagadas pelo ETL; limpeza futura é decisão
 | CARGA-INFRA-1 | Migration de controle de cargas | `mysql-migrations/V44__controle_de_cargas.sql` | contrato acima | Tabelas, FKs, coluna em `etl_execucao` e `vw_carga_ultima` conforme contrato; aditiva, não altera dados existentes; validada em banco novo e em upgrade | IMPLEMENTADO (2026-10-18): banco novo (40 migrations da develop + V44) e upgrade do banco local (v43 → v44) aplicados; view, `SET NULL`, cascata e os 5 CHECKs testados — ver `docs/carga/CARGA-INFRA-1.md` |
 | CARGA-INFRA-2 | ETL como serviço interno no compose | `docker-compose.yml` | DEC-CARGA-1 | Serviço sai do profile `etl`, `restart: unless-stopped`, entrypoint `python -m app.servidor`, porta só em `127.0.0.1:8097`, health check em `/saude`, `ETL_TOKEN`/`ETL_VERSAO` por env; gestor recebe `ETL_URL`/`ETL_TOKEN` | IMPLEMENTADO (2026-10-18): `docker compose config` válido. **Só mesclar/implantar depois da imagem com a CARGA-ETL-4**; antes disso o container falha ao subir (sem carregar nada). O `docker-compose-local.yml` (local, com chaves) precisa da mesma mudança à mão |
 | CARGA-INFRA-3 | Rotina da manhã dispara `POST /cargas` | `scripts/cargas-etl.ps1` | CARGA-INFRA-2 | Script chama `POST /cargas` (`tipo=ROTINA`, `solicitada_por=ROTINA_MANHA`), acompanha `GET /cargas/{id}` até terminar e sai com código ≠ 0 em `FALHA`/`SUCESSO_PARCIAL`/`INTERROMPIDA`; 409 espera a carga em andamento e pede de novo; eventos corporativos mensais via `PARCIAL`; sem flags de CLI do ETL | IMPLEMENTADO (2026-10-18): testado contra um ETL simulado (409 + sucesso com alerta, falha parcial, ETL fora do ar). Corrige a rotina, que hoje chama flags inexistentes no `main.py` (`--comunicados`, `--ttm`, `--cotahist`, `--conciliar`, `--eventos-corporativos`) |
-| CARGA-INFRA-4 | Backfill e documentação sem o profile `etl` | `scripts/backfill-historico.ps1`, `PROXIMOS-PASSOS.md`, `PLANO-ATUALIZACAO-DIARIA.md` | CARGA-INFRA-2 | `backfill-historico.ps1` pede `POST /cargas` (`COMPLETA` ou `PARCIAL` com anos) em vez de `--profile etl run`; documentos sem comandos de CLI do ETL | PLANEJADO |
+| CARGA-INFRA-4 | Backfill e documentação sem o profile `etl` | `scripts/backfill-historico.ps1`, `PROXIMOS-PASSOS.md`, `PLANO-ATUALIZACAO-DIARIA.md` | CARGA-INFRA-2 | `backfill-historico.ps1` pede `POST /cargas` (`COMPLETA` ou `PARCIAL` com anos) em vez de `--profile etl run`; documentos sem comandos de CLI do ETL | MOVIDO → CONS-INFRA-3 |
 
 ### Ordem e paralelismo
 
@@ -1002,3 +1002,470 @@ Regras: um agente por repositório por vez; tarefas do mesmo repositório em seq
 2. Cada disparo (rotina, painel) gera uma `carga_execucao` com etapas, métricas, alertas, erros e arquivos; o painel mostra a última tentativa e o último sucesso de cada etapa.
 3. Duas cargas não rodam ao mesmo tempo (409); queda do processo deixa a execução `INTERROMPIDA`, não `EXECUTANDO` para sempre.
 4. Nenhum comando ou flag manual novo; o ETL tem uma única entrada.
+
+---
+
+## Plano consolidado CONS: MACRO + FONTES + MICRO enxuto, migration única (2026-10-20)
+
+**Status:** PLANEJADO · **Rótulos:** `CONS-*`, `FONTES-*`, `MICRO-*`, `MACRO-*` · **Contrato, ondas e dependências entre serviços:** `infra-b3-ecossytem/SPEC.md`, Plano consolidado CONS. Este é o hub. Fontes públicas sem cadastro nem chave. Uma única migration nova (V45, CONS-INFRA-1). Regra de independência: cada tarefa tem posse exclusiva dos arquivos listados; arquivos compartilhados têm um único dono.
+
+### Estado real das pendências, conferido na `develop` em 2026-10-20
+| Plano | Estado real | O que falta |
+|---|---|---|
+| CARGA-ETL-1..4 | Implementado na develop (`app/servidor.py`, `executar_carga.py`, `docs/carga/`) | Só o status na SPEC |
+| CARGA-INFRA-1..3 | Implementado (V44, `cargas-etl.ps1`) | Só o status na SPEC |
+| CARGA-INFRA-4 | Planejado | Backfill e documentação sem o profile `etl` |
+| CARGA-PAI-1..5, OPCX-PAI-1..3, CARTDB-PAI-1..2 | Código já está na develop | Só o status na SPEC |
+| CARTDB-PAI-3..7, CART-PAI-*, OPT-*, OPRV2-*, OPR-INFRA-5, SIM-PAI-1 | Backlog antigo, sem relação com este plano | Ficam fora; a tarefa CONS-SPEC-1 só revisa o status |
+
+Última migration na develop: **V44**. A única migration nova deste plano será a **V45**.
+
+### Rótulos
+Cada plano mantém o próprio rótulo, centralizado no `SPEC.md` de cada aplicação, sem SPEC nova:
+- **`MACRO-*`**: já escrito no gestor e no painel.
+- **`FONTES-*`**: Prioridades 1 e 2.
+- **`MICRO-*`**: versão enxuta; substitui a proposta anterior.
+- **`CONS-*`**: infra única, sincronização de status e backfill.
+
+### Tarefas
+
+**Regra de independência:** cada tarefa tem **posse exclusiva** dos arquivos listados. Arquivos compartilhados (`executar_carga.py`, `main.py`, `navegacao.js`, `IndicesMacroPage.js`, `SecaoValuation.js`) têm **um único dono**, e as outras tarefas não mexem neles.
+
+#### Infra: uma execução só
+| ID | Tarefa | Arquivos | Depende | Aceite |
+|---|---|---|---|---|
+| **CONS-INFRA-1** | **Migration única V45** | `mysql-migrations/V45__fontes_publicas_e_microestrutura.sql` | FONTES-ETL-1 (inventário) | Aditiva e idempotente. Tabelas (9): `titulo_publico_taxa`, `banco_indicador_trimestral`, `cvm_cadastro`, `cvm_auditor`, `cvm_negociacao_administrador`, `cvm_divida_valor_mobiliario`, `fundo_posicao_acao`, `data_ex_b3`, `negociacao_b3_diaria` (TPMERC ≠ 010/070/080). `cvm_recompra`, `cvm_politica_dividendos` e `fii_informe_mensal` saíram do plano; `cvm_divida_vencimento` virou `cvm_divida_valor_mobiliario`. CHECK `ck_carga_etapa_etapa` ampliada com TESOURO, IFDATA, CVM_CADASTRO, CVM_VLMO, CVM_FRE, CVM_CDA. Corrige a CHECK de `etl_execucao.status` para aceitar `INCOMPLETO`, que o código já grava. Aplicada do zero numa base de teste nova e por cima da v44 local. **IMPLEMENTADO (2026-10-20):** V45 escrita em feature-cons-infra-1, testada em base descartável; ainda não aplicada na base local |
+| **CONS-INFRA-2** | Contrato no hub SPEC | `infra-b3-ecossytem/SPEC.md`, seção do plano consolidado | CONS-INFRA-1 | Dicionário de colunas, origem e periodicidade de cada etapa nova; mapa das marcas ex (DEC-MICRO-1). **IMPLEMENTADO (2026-10-20):** ver "Contrato V45 (CONS-INFRA-2)" ao fim desta seção |
+| **CONS-INFRA-3** (era CARGA-INFRA-4) | Backfill e documentação | `scripts/cargas-etl.ps1`, `docs/` | CONS-INFRA-1 | Uma carga COMPLETA pela API recompõe todas as etapas novas; documentado sem o profile `etl` |
+
+#### ETL
+| ID | Tarefa | Arquivos (posse) | Depende | Aceite |
+|---|---|---|---|---|
+| **FONTES-ETL-1** | Inventário dos pacotes CVM | `docs/fontes/FONTES-ETL-1.md` | — **independente** | Tabelas do FRE e do VLMO e cabeçalhos de cadastro, CDA e FII registrados a partir dos arquivos reais. Fecha as colunas da V45 |
+| **FONTES-ETL-2** | Leitor do cadastro CVM | `app/adaptadores/cvm/cadastro.py`, testes | — **independente** | Lê `cad_cia_aberta.csv` e detecta troca de auditor |
+| **FONTES-ETL-3** | Leitor do VLMO | `app/adaptadores/cvm/vlmo.py`, testes | FONTES-ETL-1 | Lê `vlmo_cia_aberta_{ano}.zip` e soma compra líquida por cargo e mês |
+| **FONTES-ETL-4** | Leitor do FRE completo | `app/adaptadores/cvm/fre_estendido.py`, testes | FONTES-ETL-1 | Recompras e tesouraria, política de dividendos e dívida por vencimento |
+| **FONTES-ETL-5** | Leitor do Tesouro | `app/adaptadores/tesouro/`, testes | — **independente** | CSV aberto de preço e taxa do Tesouro Direto (URL confirmada na tarefa), com cache por ETag |
+| **FONTES-ETL-6** | Leitor do IF.data | `app/adaptadores/bcb/ifdata.py`, testes | — **independente** | OData do BCB, ligada ao ticker pelo CNPJ |
+| **FONTES-ETL-7** | Leitor do CDA (sem FII, DEC-FONTES-2) | `app/adaptadores/cvm/cda.py` | FONTES-ETL-1 | Só ações no CDA, 24 meses de histórico |
+| **MICRO-ETL-1** | Datas ex | `app/aplicacao/datas_ex.py`, testes | — **independente** (o leitor não toca no banco) | Classifica `marca_ex` e calcula o ajuste implícito a partir de `cotacao_b3_diaria` |
+| **MICRO-ETL-2** | Leitor de outros mercados | `leitor_cotahist.py`, só a função nova `ler_mercados_linhas` | — **independente** | Lê TPMERC 017/020/030/012/013. Os leitores de à vista e de opções ficam intactos |
+| **FONTES-ETL-8** | Repositórios e etapas no catálogo (dono único de `executar_carga.py`, `main.py` e `repositorios.py`) | esses três arquivos | CONS-INFRA-1, FONTES-ETL-2..7, MICRO-ETL-1..2 | Cada leitor vira uma etapa com `resumo_etapa`. A recomposição do histórico é automática quando a tabela está vazia (start único). Datas ex entram na etapa EVENTOS e mercados na COTAHIST |
+
+#### Gestor
+| ID | Tarefa | Arquivos (posse) | Depende | Aceite |
+|---|---|---|---|---|
+| **MACRO-GES-1** | Séries SGS novas | `ServicoAtualizacaoIndicesMacro.java` | — **independente** | IPCA_12M (13522) e EURO (21619), já conferidos |
+| **MACRO-GES-2** | Focus | `ClienteFocusBcb`, `ServicoAtualizacaoFocus` | — **independente** | Medianas de Selic e IPCA |
+| **MACRO-GES-4** | Filtro `?desde=` | `IndiceMacroController` (dono), `RepositorioIndiceMacro` | — **independente** | Compatível com a chamada atual |
+| **MACRO-GES-3** | `/indices-macro/painel` | `ServicoPainelMacro` + rota no `IndiceMacroController` | MACRO-GES-1, 2, 4 | Juro real, ciclo da Selic, barreira de compra e ativos acima dela |
+| **MICRO-GES-1** | Velas com marca ex e preço médio, opções com ofertas | `PregoesDTO`, `OpcaoB3DTO` e repositórios | — **independente** (colunas já existem) | Campos opcionais; o contrato atual não quebra |
+| **FONTES-GES-1** | Prêmio de risco e curva real | `ServicoPremioRisco`, rotas `/ativos/{s}/premio-risco` e `/indices-macro/curva-real` (controller próprio) | FONTES-ETL-8 | Earnings yield − NTN-B, com leitura |
+| **FONTES-GES-2** | Indicadores de banco | `/ativos/{s}/banco` | FONTES-ETL-8 | Basileia, inadimplência e ROE |
+| **FONTES-GES-3** | Insiders e recompras | `/ativos/{s}/insiders`, `/ativos/{s}/recompras` | FONTES-ETL-8 | Compra líquida em 3, 6 e 12 meses |
+| **FONTES-GES-4** | Confiabilidade | `/ativos/{s}/confiabilidade` | FONTES-ETL-8 | Selos de cadastro, auditor, dividendo sustentável e fundos |
+| **MICRO-GES-2** | Datas ex | `/ativos/{s}/datas-ex` | FONTES-ETL-8 | Calendário com valor implícito e valor declarado |
+| ~~FONTES-GES-5~~ | **SUBSTITUÍDA** por `SINAIS-INS-1..7` na SPEC do gerar-insights: o score e o backtest ficam lá, o gestor só lê o placar | — | — | Sinais novos só entram no score se vencerem o backtest (LAC-INS-8/9) |
+
+#### Painel
+| ID | Tarefa | Arquivos (posse) | Depende | Aceite |
+|---|---|---|---|---|
+| **MACRO-PAI-2** | Cartões com gráfico em `#/indices` | `IndicesMacroPage.js` (dono das tarefas MACRO-PAI-1, 2 e 3 e de FONTES-PAI-5), `analise/macro/series.js` | — **independente** | Funciona com o endpoint atual |
+| **MICRO-PAI-1** | Gráfico: marca ex e preço médio; padrões ignoram o gap do dia ex | `painelCandles/`, `analise/overlays/`, detector de padrões | MICRO-GES-1 | Sem sinal falso no dia ex |
+| **MICRO-PAI-2** | Opções: preço justo pelo meio do spread e spread % | `SecaoOpcoes`, `OpcaoPage` (opcoes-painel) | MICRO-GES-1 | Séries sem oferta marcadas |
+| **CONS-PAI-1** | Proxy: `/opcoes`, `/proventos` e rotas novas | `proxy/apiProxy.js` | — **independente** | `/opcoes/saude` deixa de dar 404 |
+| **MACRO-PAI-1/3, FONTES-PAI-5** | Cabeçalho de decisão, ativos acima da barreira, curva NTN-B (feitas em sequência, mesmo dono) | `IndicesMacroPage.js` | MACRO-GES-3, FONTES-GES-1 | |
+| **FONTES-PAI-1** | Valuation: prêmio de risco, Graham com juros e linha earnings yield × Selic (dono de `SecaoValuation`, absorve parte de MACRO-PAI-3) | `SecaoValuation.js` | FONTES-GES-1, MACRO-GES-3 | |
+| **FONTES-PAI-2** | Ficha de banco | `SecaoFundamentos.js` | FONTES-GES-2 | |
+| **FONTES-PAI-3** | Seção "Quem está dentro" | nova `SecaoInsiders.js` | FONTES-GES-3 | |
+| **FONTES-PAI-4** | Selos de confiabilidade e filtro | `SecaoCabecalho.js`, tabela de ativos | FONTES-GES-4 | |
+| **MICRO-PAI-3** | Renda: calendário ex e custo do spread no plano | `SecaoProventos.js`, `planoDeOperacao.js` | MICRO-GES-2 | |
+| **MACRO-PAI-4** | Glossário e Fórmulas (dono único) | `GlossarioPage.js`, `FormulasPage.js` | todas as tarefas PAI acima | Verbetes de todos os planos |
+
+#### SPECs
+| ID | Tarefa | Depende |
+|---|---|---|
+| **CONS-SPEC-1** | Escrever os planos FONTES, MICRO enxuto e CONS no `SPEC.md` de cada aplicação (o MACRO já está escrito). Corrigir os status atrasados: CARGA-*, OPCX-PAI-*, CARTDB-PAI-1..2 → IMPLEMENTADO. Mover CARGA-INFRA-4 para CONS-INFRA-3 | — **independente**, é o entregável desta etapa |
+
+### Ondas de execução
+| Onda | Tarefas em paralelo, sem colisão | Por que podem rodar juntas |
+|---|---|---|
+| **0** | CONS-SPEC-1, FONTES-ETL-1, 2, 5, 6, MICRO-ETL-1, 2, MACRO-GES-1, 2, 4, MICRO-GES-1, MACRO-PAI-2, CONS-PAI-1 | Não tocam no banco nem em arquivo compartilhado |
+| **1** | **CONS-INFRA-1 (V45, execução única)**, FONTES-ETL-3, 4, 7, MACRO-GES-3, MICRO-PAI-1, MICRO-PAI-2 | A V45 só espera o inventário. Os leitores da onda 1 são arquivos próprios |
+| **2** | FONTES-ETL-8, CONS-INFRA-2 | O ETL-8 é o único que mexe no catálogo |
+| **3** | CONS-INFRA-3 (backfill), FONTES-GES-1..4, MICRO-GES-2 | Precisam das tabelas com dados |
+| **4** | MACRO-PAI-1/3 + FONTES-PAI-5, FONTES-PAI-1..4, MICRO-PAI-3 | Uma tarefa por arquivo |
+| **5** | MACRO-PAI-4 | Textos por último. O score pelo backtest saiu daqui: ver `SINAIS-INS-*` no gerar-insights |
+
+### Decisões em aberto
+- **DEC-FONTES-1 — APROVADA (2026-10-20):** bancos (setor do cadastro CVM) são avaliados por P/VP × ROE e Basileia (IF.data), não por Graham nem EV/EBITDA.
+- **DEC-FONTES-2 — DECIDIDA (2026-10-20): FIIs NÃO entram.** FONTES-ETL-7 lê só o CDA; `fii_informe_mensal` e a etapa `CVM_FII` saem da V45.
+- **DEC-FONTES-3:** a NTN-B de referência é o vencimento de cerca de 5 anos.
+- **DEC-MICRO-1:** o mapa das letras ex é validado no layout oficial da B3.
+
+### Contrato V45 (CONS-INFRA-2)
+
+Escrito em 2026-10-20 a partir da migration real `mysql-migrations/V45__fontes_publicas_e_microestrutura.sql` (branch `feature-cons-infra-1`, testada em base descartável, **ainda não aplicada na base local**) e dos inventários e docs dos leitores (FONTES-ETL-1, 3, 4, 5, 7). Colunas e tipos abaixo foram extraídos do próprio SQL. Toda tabela nova usa `ENGINE=InnoDB`, `utf8mb4`, `utf8mb4_0900_ai_ci`. CNPJ é sempre `CHAR(14)`, só com dígitos.
+
+| Tabela | Etapa | Periodicidade | Leitor no gestor |
+|---|---|---|---|
+| `titulo_publico_taxa` | `TESOURO` | diária | FONTES-GES-1 |
+| `banco_indicador_trimestral` | `IFDATA` | trimestral | FONTES-GES-2 |
+| `cvm_cadastro` | `CVM_CADASTRO` | a cada carga | FONTES-GES-4 (e GES-2) |
+| `cvm_auditor` | `CVM_FRE` | anual (pacote) | FONTES-GES-4 |
+| `cvm_negociacao_administrador` | `CVM_VLMO` | mensal | FONTES-GES-3 |
+| `cvm_divida_valor_mobiliario` | `CVM_FRE` | anual (pacote) | sem endpoint dedicado |
+| `fundo_posicao_acao` | `CVM_CDA` | mensal | FONTES-GES-4 |
+| `data_ex_b3` | `EVENTOS` | diária | MICRO-GES-2 |
+| `negociacao_b3_diaria` | `COTAHIST` | diária | sem leitor no plano |
+
+#### 1. `titulo_publico_taxa`
+
+- **Fonte:** Tesouro Transparente (CKAN), arquivo `precotaxatesourodireto.csv`: `https://www.tesourotransparente.gov.br/ckan/dataset/df56aa42-484a-4a59-8184-7676580c81e3/resource/796d2059-14e9-44e3-80c9-2d9e30b405c1/download` (CSV `;`, latin-1, vírgula decimal, datas dd/mm/aaaa; cerca de 14,6 MB, histórico desde 2002).
+- **Periodicidade:** Diária (dias úteis); revalidada a cada carga por ETag/Last-Modified. A carga incremental usa `desde`; o histórico entra na recomposição automática com a tabela vazia.
+- **Etapa que grava:** `TESOURO` (FONTES-ETL-5 lê, FONTES-ETL-8 grava).
+- **Chave única:** `uq_titulo_publico_taxa (tipo, vencimento, data_base)`; índice `idx_titulo_publico_taxa_data (data_base)`.
+- **Upsert:** `INSERT ... ON DUPLICATE KEY UPDATE` nas cinco colunas de taxa/PU. Reprocessar o mesmo dia é idempotente. Linhas com tipo ou data quebrados são descartadas pelo leitor.
+- **Quem lê:** FONTES-GES-1: `/indices-macro/curva-real` e `/ativos/{s}/premio-risco` (earnings yield − NTN-B de referência, DEC-FONTES-3).
+
+| Coluna | Tipo | Nulo | Nota |
+|---|---|---|---|
+| `id` | BIGINT | NOT NULL | AUTO_INCREMENT |
+| `tipo` | VARCHAR(60) | NOT NULL |  |
+| `vencimento` | DATE | NOT NULL |  |
+| `data_base` | DATE | NOT NULL |  |
+| `taxa_compra` | DECIMAL(9,4) | NULL |  |
+| `taxa_venda` | DECIMAL(9,4) | NULL |  |
+| `pu_compra` | DECIMAL(16,6) | NULL |  |
+| `pu_venda` | DECIMAL(16,6) | NULL |  |
+| `pu_base` | DECIMAL(16,6) | NULL |  |
+| `criado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP |
+| `atualizado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
+
+#### 2. `banco_indicador_trimestral`
+
+- **Fonte:** IF.data do Banco Central, API OData (FONTES-ETL-6, `app/adaptadores/bcb/ifdata.py`); ligada ao ticker pelo CNPJ. A URL exata fica no leitor.
+- **Periodicidade:** Trimestral (data-base de fim de trimestre).
+- **Etapa que grava:** `IFDATA`.
+- **Chave única:** `uq_banco_indicador_trimestral (cnpj, data_base)`.
+- **Upsert:** `ON DUPLICATE KEY UPDATE` em todos os indicadores e em `simbolo`. `origem` fica `IFDATA`.
+- **Quem lê:** FONTES-GES-2: `/ativos/{s}/banco` (Basileia, inadimplência, ROE). DEC-FONTES-1: bancos valem por P/VP × ROE e Basileia.
+
+| Coluna | Tipo | Nulo | Nota |
+|---|---|---|---|
+| `id` | BIGINT | NOT NULL | AUTO_INCREMENT |
+| `cnpj` | CHAR(14) | NOT NULL | Somente digitos |
+| `simbolo` | VARCHAR(12) | NULL |  |
+| `data_base` | DATE | NOT NULL |  |
+| `basileia` | DECIMAL(9,4) | NULL |  |
+| `indice_capital_principal` | DECIMAL(9,4) | NULL |  |
+| `inadimplencia` | DECIMAL(9,4) | NULL |  |
+| `roe` | DECIMAL(9,4) | NULL |  |
+| `ativo_total` | DECIMAL(22,2) | NULL |  |
+| `patrimonio_liquido` | DECIMAL(22,2) | NULL |  |
+| `carteira_credito` | DECIMAL(22,2) | NULL |  |
+| `origem` | VARCHAR(20) | NOT NULL | DEFAULT 'IFDATA' |
+| `criado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP |
+| `atualizado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
+
+#### 3. `cvm_cadastro`
+
+- **Fonte:** CVM: `https://dados.cvm.gov.br/dados/CIA_ABERTA/CAD/DADOS/cad_cia_aberta.csv` (1,5 MB, cerca de 2.678 companhias, arquivo único sem histórico; CSV `;`, latin-1).
+- **Periodicidade:** Revalidada a cada carga por ETag (arquivo de retrato atual).
+- **Etapa que grava:** `CVM_CADASTRO` (FONTES-ETL-2 lê).
+- **Chave única:** PK `cnpj`; índice `idx_cvm_cadastro_codigo (codigo_cvm)`.
+- **Upsert:** `ON DUPLICATE KEY UPDATE` de todas as colunas: o arquivo é o retrato atual. `cnpj_auditor`/`auditor` são só o auditor atual; o histórico fica em `cvm_auditor`.
+- **Quem lê:** FONTES-GES-4: `/ativos/{s}/confiabilidade` (selos de cadastro e auditor). `setor_cvm` identifica bancos para a DEC-FONTES-1 (FONTES-GES-2).
+
+| Coluna | Tipo | Nulo | Nota |
+|---|---|---|---|
+| `cnpj` | CHAR(14) | NOT NULL | Somente digitos |
+| `codigo_cvm` | VARCHAR(10) | NULL |  |
+| `denominacao` | VARCHAR(200) | NULL |  |
+| `situacao` | VARCHAR(40) | NULL |  |
+| `data_situacao` | DATE | NULL |  |
+| `data_cancelamento` | DATE | NULL |  |
+| `motivo_cancelamento` | VARCHAR(200) | NULL |  |
+| `setor_cvm` | VARCHAR(120) | NULL |  |
+| `situacao_emissor` | VARCHAR(60) | NULL |  |
+| `controle_acionario` | VARCHAR(40) | NULL |  |
+| `cnpj_auditor` | CHAR(14) | NULL |  |
+| `auditor` | VARCHAR(200) | NULL |  |
+| `atualizado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
+
+#### 4. `cvm_auditor`
+
+- **Fonte:** CVM FRE: `https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/FRE/DADOS/fre_cia_aberta_{ano}.zip`, tabela `fre_cia_aberta_auditor` (8,5 MB/ano; CSV `;`, latin-1).
+- **Periodicidade:** Anual por pacote; a carga revalida o ano corrente.
+- **Etapa que grava:** `CVM_FRE` (FONTES-ETL-4 lê).
+- **Chave única:** `uq_cvm_auditor (cnpj, data_referencia, cnpj_auditor, data_inicio)`.
+- **Upsert:** `ON DUPLICATE KEY UPDATE` de `versao`, `auditor`, `data_fim` e `justificativa_substituicao`. O leitor mantém só a última `Versao` por (cnpj, data_referencia). "Não aplicável", "N/A" e equivalentes viram NULL em `justificativa_substituicao`.
+- **Quem lê:** FONTES-GES-4: `/ativos/{s}/confiabilidade` (troca de auditor nos últimos 24 meses).
+
+| Coluna | Tipo | Nulo | Nota |
+|---|---|---|---|
+| `id` | BIGINT | NOT NULL | AUTO_INCREMENT |
+| `cnpj` | CHAR(14) | NOT NULL |  |
+| `data_referencia` | DATE | NOT NULL |  |
+| `versao` | SMALLINT | NOT NULL |  |
+| `cnpj_auditor` | CHAR(14) | NOT NULL |  |
+| `auditor` | VARCHAR(200) | NULL |  |
+| `data_inicio` | DATE | NOT NULL |  |
+| `data_fim` | DATE | NULL |  |
+| `justificativa_substituicao` | TEXT | NULL |  |
+| `criado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP |
+| `atualizado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
+
+#### 5. `cvm_negociacao_administrador`
+
+- **Fonte:** CVM VLMO: `https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/VLMO/DADOS/vlmo_cia_aberta_{ano}.zip` (0,8 MB/ano), arquivo `vlmo_cia_aberta_con_{ano}.csv`; `Data_Entrega` vem do índice `vlmo_cia_aberta_{ano}.csv`.
+- **Periodicidade:** Mensal (a `Data_Referencia` é o mês); a carga revalida o ano corrente.
+- **Etapa que grava:** `CVM_VLMO` (FONTES-ETL-3 lê).
+- **Chave única:** `uq_cvm_negociacao_administrador (cnpj, data_referencia, versao, hash_linha)`; índice `idx_cvm_negociacao_admin_mov (cnpj, data_movimentacao)`.
+- **Upsert:** Não há identificador natural por linha: o ETL calcula `hash_linha` e faz `INSERT ... ON DUPLICATE KEY UPDATE` (reenvio idêntico não duplica). O leitor mantém só a última `Versao` por (cnpj, data_referencia). `volume`/`preco_unitario` zerados viram NULL. O filtro de decisão de mercado (Compra à vista, Venda à vista e Compra à termo, com Ações ou Units) é aplicado na consulta (`compra_liquida`), não na gravação.
+- **Quem lê:** FONTES-GES-3: `/ativos/{s}/insiders` (compra líquida em 3, 6 e 12 meses por cargo).
+
+| Coluna | Tipo | Nulo | Nota |
+|---|---|---|---|
+| `id` | BIGINT | NOT NULL | AUTO_INCREMENT |
+| `cnpj` | CHAR(14) | NOT NULL |  |
+| `data_referencia` | DATE | NOT NULL |  |
+| `versao` | SMALLINT | NOT NULL |  |
+| `data_entrega` | DATE | NULL |  |
+| `tipo_empresa` | VARCHAR(60) | NULL |  |
+| `tipo_cargo` | VARCHAR(120) | NULL |  |
+| `tipo_movimentacao` | VARCHAR(120) | NULL |  |
+| `tipo_operacao` | VARCHAR(60) | NULL |  |
+| `tipo_ativo` | VARCHAR(60) | NULL |  |
+| `caracteristica` | VARCHAR(120) | NULL |  |
+| `data_movimentacao` | DATE | NULL |  |
+| `quantidade` | DECIMAL(22,6) | NULL |  |
+| `preco_unitario` | DECIMAL(22,6) | NULL |  |
+| `volume` | DECIMAL(22,2) | NULL |  |
+| `hash_linha` | CHAR(64) | NOT NULL | SHA-256 hex das colunas de conteudo |
+| `criado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP |
+
+#### 6. `cvm_divida_valor_mobiliario`
+
+- **Fonte:** CVM FRE: `fre_cia_aberta_{ano}.zip`, tabela `fre_cia_aberta_outro_valor_mobiliario` (debêntures, notas comerciais, CRI e outros). Cobre só dívida em valores mobiliários, não empréstimos bancários (o total continua vindo do BPP da DFP).
+- **Periodicidade:** Anual por pacote, como `cvm_auditor`.
+- **Etapa que grava:** `CVM_FRE` (FONTES-ETL-4 lê).
+- **Chave única:** `uq_cvm_divida_valor_mobiliario (cnpj, data_referencia, versao, hash_linha)`.
+- **Upsert:** Mesma regra do `hash_linha` (seção própria abaixo). `conversivel` guarda o texto `Sim`/`Não` (vazio vira NULL).
+- **Quem lê:** Nenhum endpoint dedicado no plano; `vencimentos_por_ano` fica disponível para FONTES-GES-4. Sem rótulo de leitor ainda.
+
+| Coluna | Tipo | Nulo | Nota |
+|---|---|---|---|
+| `id` | BIGINT | NOT NULL | AUTO_INCREMENT |
+| `cnpj` | CHAR(14) | NOT NULL |  |
+| `data_referencia` | DATE | NOT NULL |  |
+| `versao` | SMALLINT | NOT NULL |  |
+| `tipo` | VARCHAR(100) | NULL |  |
+| `identificacao` | VARCHAR(200) | NULL |  |
+| `data_emissao` | DATE | NULL |  |
+| `data_vencimento` | DATE | NULL |  |
+| `quantidade` | DECIMAL(22,6) | NULL |  |
+| `valor` | DECIMAL(22,2) | NULL |  |
+| `saldo_devedor` | DECIMAL(22,2) | NULL |  |
+| `conversivel` | VARCHAR(10) | NULL |  |
+| `hash_linha` | CHAR(64) | NOT NULL | SHA-256 hex das colunas de conteudo |
+| `criado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP |
+
+#### 7. `fundo_posicao_acao`
+
+- **Fonte:** CVM CDA: `https://dados.cvm.gov.br/dados/FI/DOC/CDA/DADOS/cda_fi_{AAAAMM}.zip` (13 MB/mês), bloco `cda_fi_BLC_4_{AAAAMM}.csv` com `TP_APLIC = "Ações"`; `pl_fundo` vem de `cda_fi_PL_{AAAAMM}.csv`. Posições `CONFID` ficam de fora. Sem FII (DEC-FONTES-2).
+- **Periodicidade:** Mensal; 24 meses de histórico.
+- **Etapa que grava:** `CVM_CDA` (FONTES-ETL-7 lê).
+- **Chave única:** `uq_fundo_posicao_acao (competencia, cnpj_fundo, simbolo)`; índice `idx_fundo_posicao_acao_simbolo (simbolo, competencia)`.
+- **Upsert:** `ON DUPLICATE KEY UPDATE` de `isin`, `quantidade`, `valor_mercado`, `pl_fundo`. `competencia` é o primeiro dia do mês; símbolo em maiúsculas. Linhas repetidas do mesmo fundo e símbolo na competência devem ser somadas antes de gravar (o leitor as devolve separadas; a soma é feita em `fluxo_por_ativo`).
+- **Quem lê:** FONTES-GES-4: `/ativos/{s}/confiabilidade` (selo de fundos); `fluxo_por_ativo` dá entradas e saídas.
+
+| Coluna | Tipo | Nulo | Nota |
+|---|---|---|---|
+| `id` | BIGINT | NOT NULL | AUTO_INCREMENT |
+| `competencia` | DATE | NOT NULL | Primeiro dia do mes |
+| `cnpj_fundo` | CHAR(14) | NOT NULL |  |
+| `simbolo` | VARCHAR(12) | NOT NULL |  |
+| `isin` | VARCHAR(12) | NULL |  |
+| `quantidade` | DECIMAL(22,6) | NULL |  |
+| `valor_mercado` | DECIMAL(22,2) | NULL |  |
+| `pl_fundo` | DECIMAL(22,2) | NULL |  |
+| `criado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP |
+| `atualizado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
+
+#### 8. `data_ex_b3`
+
+- **Fonte:** Derivada: MICRO-ETL-1 (`app/aplicacao/datas_ex.py`) classifica `marca_ex` e calcula o ajuste implícito sobre `cotacao_b3_diaria` (COTAHIST), cruzando com o valor declarado dos proventos quando existe.
+- **Periodicidade:** Diária, junto do COTAHIST do dia.
+- **Etapa que grava:** `EVENTOS` (FONTES-ETL-8 liga).
+- **Chave única:** `uq_data_ex_b3 (simbolo, data_ex, marca)`; índice `idx_data_ex_b3_data (data_ex)`; CHECK `ck_data_ex_b3_tipo` (DIVIDENDO, JCP, RENDIMENTO, BONIFICACAO, SUBSCRICAO, GRUPAMENTO, DESDOBRAMENTO, OUTRO).
+- **Upsert:** `ON DUPLICATE KEY UPDATE` de todos os valores; `versao_calculo` (NOT NULL) identifica a versão da fórmula, e recálculo com versão nova sobrescreve. `origem_valor` diz de onde veio `valor_declarado`.
+- **Quem lê:** MICRO-GES-2: `/ativos/{s}/datas-ex` (calendário com valor implícito e declarado). MICRO-GES-1 (velas) usa `marca_ex` de `cotacao_b3_diaria`, que já existe (V16).
+
+| Coluna | Tipo | Nulo | Nota |
+|---|---|---|---|
+| `id` | BIGINT | NOT NULL | AUTO_INCREMENT |
+| `simbolo` | VARCHAR(12) | NOT NULL |  |
+| `data_ex` | DATE | NOT NULL |  |
+| `marca` | VARCHAR(4) | NOT NULL |  |
+| `tipo` | VARCHAR(20) | NOT NULL |  |
+| `fechamento_anterior` | DECIMAL(14,4) | NULL |  |
+| `abertura_ex` | DECIMAL(14,4) | NULL |  |
+| `ajuste_implicito` | DECIMAL(14,4) | NULL |  |
+| `ajuste_percentual` | DECIMAL(9,4) | NULL |  |
+| `valor_declarado` | DECIMAL(14,6) | NULL |  |
+| `origem_valor` | VARCHAR(30) | NULL |  |
+| `versao_calculo` | VARCHAR(20) | NOT NULL |  |
+| `criado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP |
+| `atualizado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
+
+#### 9. `negociacao_b3_diaria`
+
+- **Fonte:** B3 COTAHIST (mesmo arquivo da etapa COTAHIST), registros com TPMERC fora de 010/070/080, lidos por `ler_mercados_linhas` (MICRO-ETL-2).
+- **Periodicidade:** Diária, junto do COTAHIST.
+- **Etapa que grava:** `COTAHIST`.
+- **Chave única:** `uq_negociacao_b3_diaria (simbolo, data_pregao, tpmerc)`; índice `idx_negociacao_b3_diaria_base (simbolo_base, data_pregao)`; CHECK `ck_negociacao_b3_diaria_tpmerc`.
+- **Upsert:** `ON DUPLICATE KEY UPDATE` de todas as colunas de preço, volume e atributos. À vista (010) e opções (070/080) continuam em suas tabelas atuais, fora desta.
+- **Quem lê:** Nenhum leitor no plano atual; base para consumo futuro (termo, fracionário, leilão). Sem rótulo de leitor ainda.
+
+| Coluna | Tipo | Nulo | Nota |
+|---|---|---|---|
+| `id` | BIGINT | NOT NULL | AUTO_INCREMENT |
+| `simbolo` | VARCHAR(12) | NOT NULL |  |
+| `simbolo_base` | VARCHAR(12) | NULL |  |
+| `data_pregao` | DATE | NOT NULL |  |
+| `tpmerc` | CHAR(3) | NOT NULL |  |
+| `codbdi` | CHAR(2) | NULL |  |
+| `especificacao` | VARCHAR(10) | NULL |  |
+| `prazo_termo_dias` | INT | NULL |  |
+| `indice_correcao` | CHAR(1) | NULL |  |
+| `preco_exercicio` | DECIMAL(14,4) | NULL |  |
+| `data_vencimento` | DATE | NULL |  |
+| `abertura` | DECIMAL(14,4) | NULL |  |
+| `maxima` | DECIMAL(14,4) | NULL |  |
+| `minima` | DECIMAL(14,4) | NULL |  |
+| `fechamento` | DECIMAL(14,4) | NULL |  |
+| `preco_medio` | DECIMAL(14,4) | NULL |  |
+| `melhor_oferta_compra` | DECIMAL(14,4) | NULL |  |
+| `melhor_oferta_venda` | DECIMAL(14,4) | NULL |  |
+| `volume` | BIGINT | NULL |  |
+| `numero_negocios` | INT | NULL |  |
+| `volume_financeiro` | DECIMAL(22,2) | NULL |  |
+| `fator_cotacao` | INT | NULL |  |
+| `isin` | VARCHAR(12) | NULL |  |
+| `dismes` | SMALLINT | NULL |  |
+| `criado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP |
+| `atualizado_em` | DATETIME | NOT NULL | DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
+
+#### Regra do `hash_linha` (`cvm_negociacao_administrador` e `cvm_divida_valor_mobiliario`)
+
+- Tipo `CHAR(64)` NOT NULL: **SHA-256 em hexadecimal minúsculo** (64 caracteres), calculado pelo ETL, nunca pelo banco.
+- Entrada: as colunas de **conteúdo** da linha, na ordem em que aparecem nas tabelas acima, excluindo `id`, `criado_em`, `hash_linha` e as três da chave (`cnpj`, `data_referencia`, `versao`), que já compõem a chave única. Em `cvm_negociacao_administrador`: `data_entrega`, `tipo_empresa`, `tipo_cargo`, `tipo_movimentacao`, `tipo_operacao`, `tipo_ativo`, `caracteristica`, `data_movimentacao`, `quantidade`, `preco_unitario`, `volume`. Em `cvm_divida_valor_mobiliario`: `tipo`, `identificacao`, `data_emissao`, `data_vencimento`, `quantidade`, `valor`, `saldo_devedor`, `conversivel`.
+- Serialização (convenção desta spec, a ser fixada em código por FONTES-ETL-8; a V45 só exige CHAR(64)): valores em texto, NULL como texto vazio, datas em `AAAA-MM-DD`, decimais em notação fixa sem zeros à direita, campos unidos por `|`, UTF-8, espaços das pontas removidos.
+- Efeito: linhas idênticas dentro de (cnpj, data_referencia, versao) colapsam em uma; versão nova do arquivo (`versao` maior) gera linhas novas, e quem lê usa a maior `versao`.
+
+#### Mapa TPMERC (`negociacao_b3_diaria.tpmerc`)
+
+| TPMERC | Mercado |
+|---|---|
+| `012` | Exercício de opções de compra (call) |
+| `013` | Exercício de opções de venda (put) |
+| `017` | Leilão |
+| `020` | Fracionário |
+| `030` | Termo |
+| `050` | Aceito pela CHECK da V45; descrição e uso a validar contra o layout oficial |
+| `060` | Aceito pela CHECK da V45; descrição e uso a validar contra o layout oficial |
+
+A CHECK `ck_negociacao_b3_diaria_tpmerc` aceita exatamente `012, 013, 017, 020, 030, 050, 060`. Rejeita 010 (à vista), 070 e 080 (opções), que seguem em suas tabelas (testado: `010` dá ERROR 3819). MICRO-ETL-2 lê 017/020/030/012/013; 050 e 060 estão liberados no banco, mas sem leitor.
+
+#### Mapa das marcas ex (`data_ex_b3.marca` e `tipo`)
+
+**A validar contra o layout oficial da B3 (DEC-MICRO-1).** A `marca` é o sufixo `E?` da especificação (`ESPECI`) no dia, a mesma de `cotacao_b3_diaria.marca_ex` (V16). O leitor atual aceita `E` seguido de 1 a 3 letras entre B, D, G, J, R, S e X.
+
+| Marca | `tipo` (CHECK) |
+|---|---|
+| `EB` | `BONIFICACAO` |
+| `ED` | `DIVIDENDO` |
+| `EG` | `GRUPAMENTO` |
+| `EJ` | `JCP` |
+| `ER` | `RENDIMENTO` |
+| `ES` | `SUBSCRICAO` |
+| `EX` | `DESDOBRAMENTO` |
+| Combinações (ex.: `EDJ`) | tipo da primeira letra reconhecida; `marca` guarda a combinação inteira |
+| Letra desconhecida | `OUTRO` |
+
+`DESDOBRAMENTO` para `EX` e a precedência das combinações são hipóteses de trabalho, não confirmadas. O valor implícito de uma combinação não separa os componentes.
+
+#### CHECKs ampliadas
+
+- `ck_carga_etapa_etapa` (em `carga_etapa`): recriada com DROP condicional via `information_schema` + ADD. Aceita as 11 etapas da V44 (`COTAHIST`, `LIQUIDEZ`, `PRONTIDAO`, `QUALIDADE_OPCOES`, `CONCILIACAO`, `DFP`, `TTM`, `IPE`, `DVA`, `EVENTOS`, `CHECAGENS`) mais `TESOURO`, `IFDATA`, `CVM_CADASTRO`, `CVM_VLMO`, `CVM_FRE`, `CVM_CDA`. `CVM_FII` não existe.
+- `chk_etl_execucao_status` (em `etl_execucao`; o nome real vem da V1): recriada para aceitar `EM_ANDAMENTO`, `SUCESSO`, `PULADO`, `ERRO` e **`INCOMPLETO`**, que o ETL já gravava.
+
+#### O que saiu do plano
+
+| Item | Motivo |
+|---|---|
+| `cvm_recompra` | O FRE aberto não publica recompras. A recompra é a variação da conta "Ações em Tesouraria" do BPP da DFP, que o ETL já carrega: contas `2.03.02.05` e `2.03.04.09` (plano geral), `2.07.01.02.05` e `2.07.01.04.09` (bancos) e `2.08.02.05` e `2.08.04.09` (seguradoras). Calculada por `app/aplicacao/recompras.py` (FONTES-ETL-4) e lida por `/ativos/{s}/recompras` (FONTES-GES-3) a partir de `fato_contabil`. |
+| `cvm_politica_dividendos` | A política não é estruturada no FRE. A sustentabilidade do dividendo usa payout e fluxo de caixa da DFP, que já existem. |
+| `fii_informe_mensal` e etapa `CVM_FII` | DEC-FONTES-2 (2026-10-20): FIIs não entram. FONTES-ETL-7 lê só ações no CDA. |
+| `cvm_divida_vencimento` | Renomeada para `cvm_divida_valor_mobiliario` (restrita a valores mobiliários). |
+
+#### Decisões que o contrato assume
+
+- **DEC-FONTES-1 (aprovada):** bancos (setor do cadastro CVM) são avaliados por P/VP × ROE e Basileia (`banco_indicador_trimestral`), não por Graham nem EV/EBITDA.
+- **DEC-FONTES-3:** a NTN-B de referência é a de vencimento mais próximo de cerca de 5 anos, pela taxa de compra, entre "Tesouro IPCA+" e "Tesouro IPCA+ com Juros Semestrais" (`ntnb_referencia`). Achado real em 15/10/2026: Tesouro IPCA+ com Juros Semestrais 15/08/2032, a 6,79% a.a. de juro real.
+- **DEC-MICRO-1:** os mapas de TPMERC (050/060) e de marcas ex seguem pendentes de validação no layout oficial da B3.
+
+#### Ordem de aplicação e rollback
+
+1. **Ordem:** a V45 vem depois da V44 e antes de FONTES-ETL-8 e CONS-INFRA-3. As tabelas ficam vazias até as etapas existirem; a recomposição do histórico é automática quando a tabela está vazia.
+2. **Aditiva e idempotente:** só `CREATE TABLE IF NOT EXISTS` e a recriação das duas CHECKs (DROP condicional + ADD). Não altera nem apaga dados de tabelas existentes. Pode rodar duas vezes (testado em base descartável).
+3. **Rollback (manual, só se necessário):** `DROP TABLE` das 9 tabelas (`titulo_publico_taxa`, `banco_indicador_trimestral`, `cvm_cadastro`, `cvm_auditor`, `cvm_negociacao_administrador`, `cvm_divida_valor_mobiliario`, `fundo_posicao_acao`, `data_ex_b3`, `negociacao_b3_diaria`); depois recriar as CHECKs antigas: `ck_carga_etapa_etapa` só com as 11 etapas da V44 e `chk_etl_execucao_status` com `EM_ANDAMENTO`, `SUCESSO`, `PULADO`, `ERRO`. Antes de recriar, apagar ou corrigir linhas de `carga_etapa` com etapa nova e de `etl_execucao` com `INCOMPLETO`, senão o ADD CHECK falha. Não existe migration de desfazer.
+4. **Nunca** `docker compose down -v` nem `docker volume prune`: apagam o volume do MySQL com todos os dados. Rollback é sempre pontual, por SQL.
+
+### Status de execução (2026-10-21)
+
+Resultado de cada tarefa executada: estado, branch e observação. Os testes de cada branch passam; falta a integração dos PRs (conflitos aditivos esperados em `ficha360Api.js` e `manifesto.js` no painel).
+
+| ID | Estado | Branch | Observação |
+|---|---|---|---|
+| CONS-INFRA-1 | IMPLEMENTADO (2026-10-21) | `feature-cons-infra-1` | V45; **não aplicada** na base local |
+| CONS-INFRA-2 | IMPLEMENTADO (2026-10-21) | `feature-macro-spec` | contrato da V45 neste arquivo |
+| CONS-INFRA-3 | IMPLEMENTADO (2026-10-21) | `feature-cons-infra-1` | `cargas-etl.ps1 -Backfill`; `scripts/backfill-historico.ps1` ainda usa o profile `etl` antigo |
+| CONS-SPEC-1 | IMPLEMENTADO (2026-10-21) | `feature-macro-spec` |  |
+| FONTES-ETL-1 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | docs/fontes/FONTES-ETL-1.md |
+| FONTES-ETL-2 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-fontes-etl-2` | cadastro CVM; também copiado em feature-cons-fontes-etl-8 |
+| FONTES-ETL-3 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | VLMO |
+| FONTES-ETL-4 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | FRE: auditor e dívida; recompras pelo BPP, sem tabela |
+| FONTES-ETL-5 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | Tesouro; NTN-B de referência 6,79% em 15/10/2026 |
+| FONTES-ETL-6 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-fontes-etl-6` | IF.data; **não validado ao vivo**: o OData do BCB respondeu 500; alternativa em www3.bcb.gov.br/ifdata/rest/arquivos não implementada |
+| FONTES-ETL-7 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | CDA, só ações |
+| FONTES-ETL-8 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-etl-8` | partes 1 e 2: etapas TESOURO, CVM_VLMO, CVM_FRE, CVM_CDA, CVM_CADASTRO, IFDATA, datas ex (em EVENTOS) e mercados (em COTAHIST); docs/cons/FONTES-ETL-8a.md e 8b.md |
+| MICRO-ETL-1 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-micro-etl-1` | o leitor não cobre a regra do primeiro pregão; aplicada na ligação do FONTES-ETL-8 |
+| MICRO-ETL-2 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-micro-etl-2` | codbdi, especificação e data de vencimento ficam nulos na gravação |
+| MACRO-GES-1 | IMPLEMENTADO (2026-10-21) | `feature-cons-macro-ges` | docs/macro |
+| MACRO-GES-2 | IMPLEMENTADO (2026-10-21) | `feature-cons-macro-ges` | docs/macro |
+| MACRO-GES-3 | IMPLEMENTADO (2026-10-21) | `feature-cons-macro-ges` | docs/macro |
+| MACRO-GES-4 | IMPLEMENTADO (2026-10-21) | `feature-cons-macro-ges` | docs/macro |
+| FONTES-GES-1 | IMPLEMENTADO (2026-10-21) | `feature-cons-ges-1` | prêmio de risco e curva real |
+| FONTES-GES-2 | IMPLEMENTADO (2026-10-21) | `feature-cons-ges-2` | banco; limiares revisáveis; V1..V45 completa não exercitada na base de teste |
+| FONTES-GES-3 | IMPLEMENTADO (2026-10-21) | `feature-cons-ges-3` | insiders e recompras (fato_contabil BPP) |
+| FONTES-GES-4 | IMPLEMENTADO (2026-10-21) | `feature-cons-ges-4` | selos de confiabilidade |
+| FONTES-GES-5 | SUBSTITUÍDA | `—` | ver SINAIS-INS-1..7 no gerar-insights |
+| FONTES-GES-6 | PLANEJADA | `—` | campo de confiabilidade na listagem `/painel/ativos` para o filtro da tabela de ativos |
+| MICRO-GES-1 | IMPLEMENTADO pelo Codex (2026-10-21) | `feature-cons-micro-ges-1` | velas e opções com preço médio, ofertas e marca ex |
+| MICRO-GES-2 | IMPLEMENTADO (2026-10-21) | `feature-cons-ges-5` | datas ex; só o primeiro pregão da sequência com a marca |
+| MACRO-PAI-1 | IMPLEMENTADO (2026-10-21) | `feature-cons-macro-pai-2` |  |
+| MACRO-PAI-2 | IMPLEMENTADO (2026-10-21) | `feature-cons-macro-pai-2` |  |
+| MACRO-PAI-3 | IMPLEMENTADO (2026-10-21) | `feature-cons-macro-pai-2` |  |
+| MACRO-PAI-4 | IMPLEMENTADO (2026-10-21) | `feature-cons-macro-pai-4` | 34 verbetes e 24 fórmulas; links da seção `insiders` dependem da integração de FONTES-PAI-3 |
+| FONTES-PAI-1 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-pai-1` |  |
+| FONTES-PAI-2 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-pai-2` |  |
+| FONTES-PAI-3 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-pai-3` |  |
+| FONTES-PAI-4 | IMPLEMENTADO (2026-10-21) | `feature-cons-fontes-pai-4` | filtro da tabela só pelo cadastro CVM, na página carregada |
+| FONTES-PAI-5 | IMPLEMENTADO (2026-10-21) | `feature-cons-macro-pai-2` |  |
+| MICRO-PAI-1 | IMPLEMENTADO (2026-10-21) | `feature-cons-micro-pai-1` |  |
+| MICRO-PAI-2 | IMPLEMENTADO (2026-10-21) | `feature-cons-micro-pai-2` |  |
+| MICRO-PAI-3 | IMPLEMENTADO (2026-10-21) | `feature-cons-micro-pai-3` | inclui a correção do plano de operação com a resposta real de /pregoes |
+| CONS-PAI-1 | IMPLEMENTADO (2026-10-21) | `feature-cons-pai-1` | /opcoes e /proventos no proxy |
+| SINAIS-INS-1..7 | PLANEJADO | `—` | SPEC do gerar-insights, branch feature-macro-spec |
