@@ -1469,3 +1469,98 @@ Resultado de cada tarefa executada: estado, branch e observação. Os testes de 
 | MICRO-PAI-3 | IMPLEMENTADO (2026-10-21) | `feature-cons-micro-pai-3` | inclui a correção do plano de operação com a resposta real de /pregoes |
 | CONS-PAI-1 | IMPLEMENTADO (2026-10-21) | `feature-cons-pai-1` | /opcoes e /proventos no proxy |
 | SINAIS-INS-1..7 | PLANEJADO | `—` | SPEC do gerar-insights, branch feature-macro-spec |
+## Plano MERC: panorama do mercado em carrossel na Início (2026-10-20)
+
+**Status:** PLANEJADO · **Rótulos:** `MERC-GES-*` (`gestor-ativos-brutos/SPEC.md`), `MERC-PAI-*` (`painel-ativos-frontend/SPEC.md`). IDs reservados; não renomear nem reaproveitar. ETL e infra não mudam: os dados já entram pelas etapas COTAHIST e LIQUIDEZ da carga (Plano CARGA).
+
+### Objetivo
+
+No topo da página Início, um carrossel de cards com o comportamento do mercado no período escolhido. O card principal é o ranking **setores × empresas**: quais setores subiram ou caíram, se as empresas do setor andaram juntas e quais se destacaram ou foram mal dentro dele. Os cards com ranking mostram **10 tickers de cada lado** (maiores e menores).
+
+### Fontes (já existentes)
+
+| Dado | Tabela | Observação |
+|---|---|---|
+| Fechamento, volume financeiro e nº de negócios por pregão | `cotacao_b3_diaria` | COTAHIST oficial, D-1; preço ajustado por `fator_cotacao` |
+| Liquidez: volume médio 21d/63d, negócios médios, presença, spread estimado | `ativo_liquidez_diaria` | etapa LIQUIDEZ |
+| Setor e grupo do setor | `cvm_empresa.setor` → `setor_grupo.grupo_setor` | 40 setores CVM em 11 grupos |
+| Eventos corporativos (desdobramento, grupamento, bonificação) | `evento_corporativo` | para não confundir ajuste com variação |
+| Selic, CDI, dólar, IPCA | `indice_macro` | `codigo_serie` |
+
+### Cards do carrossel
+
+| # | Card | Ranking | Base de cálculo | Universo |
+|---|---|---|---|---|
+| 1 | Setores × empresas | todos os setores pela mediana; ao expandir, 10 melhores e 10 piores do setor (todas se o setor tiver menos de 20) | variação no período | líquidos |
+| 2 | Maiores altas e quedas | 10 altas + 10 quedas | variação no período | líquidos |
+| 3 | Maior e menor liquidez | 10 mais + 10 menos líquidas | volume financeiro médio 63d na data do último pregão (não depende do período) | presença ≥ 80% |
+| 4 | Mais e menos negociadas no período | 10 mais + 10 menos | soma do volume financeiro (R$) no período, com nº de negócios ao lado | presença ≥ 80% e negócio no período |
+| 5 | Amplitude do mercado | sem ranking | quantas subiram, caíram ou ficaram estáveis; % acima da média de 21 pregões | líquidos |
+| 6 | Volume fora do normal | top 10 | volume do último pregão ÷ média 21d | líquidos |
+| 7 | Macro | sem ranking | Selic, CDI no período, dólar, IPCA 12 meses | — |
+| 8 | Eventos recentes | 10 mais recentes | `evento_corporativo` | — |
+
+### Regras de cálculo (canônicas; o gestor calcula, o painel só exibe)
+
+1. **Períodos (`janela`):** `1d`, `5d` (padrão), `21d`, `ano` (desde o primeiro pregão do ano). Contados em pregões, não em dias corridos.
+2. **Variação:** `fechamento_final / fechamento_inicial − 1`, com o fechamento ajustado por `fator_cotacao`. Ativo com evento corporativo não ajustado dentro do período fica fora do ranking de variação, sem gerar "−90%" falso.
+3. **Universo "líquidos":** volume financeiro médio 63d ≥ R$ 1.000.000, presença ≥ 80% nos 63 pregões e fechamento nos dois extremos do período.
+4. **Universo "presença ≥ 80%":** negociou em pelo menos 80% dos últimos 63 pregões. Usado nos rankings de "menores" de liquidez e de negociação, para que o último lugar não seja sempre uma ação parada com R$ 0.
+5. **Setor:** variação = **mediana** das variações das empresas do setor (não média, para uma ação isolada não distorcer). Setor com menos de 3 empresas no universo vai para "Outros" e nunca lidera o ranking.
+6. **Coesão do setor:** % de empresas que andaram na mesma direção da mediana. Selo `JUNTO` (≥ 70%), `MISTO` (50–69%) ou `DISPERSO` (< 50%).
+7. **Destaque dentro do setor:** `desvio = variação da empresa − mediana do setor`. `melhores` = 10 maiores desvios; `piores` = 10 menores. Isso separa "subiu porque o setor subiu" de "subiu sozinha".
+8. **Desempate:** maior volume financeiro no período, depois símbolo em ordem alfabética.
+9. **Atualização:** o resultado só muda uma vez por pregão; cache por `(janela, dataPregao)`.
+
+### Contrato `GET /mercado/panorama?janela=5d` (gestor, camelCase)
+
+```json
+{
+  "janela": "5d",
+  "dataPregao": "2026-10-19",
+  "dataInicial": "2026-10-13",
+  "universo": { "liquidos": 196, "presenca": 312 },
+  "setores": [
+    {
+      "setor": "Bancos", "grupo": "Financeiro", "empresas": 8,
+      "variacaoMediana": 0.0213, "coesao": 0.88, "selo": "JUNTO",
+      "melhores": [ { "simbolo": "ITUB4", "nome": "Itaú Unibanco", "variacao": 0.031, "desvio": 0.0097, "volumeFinanceiro": 4.1e9 } ],
+      "piores": [ ]
+    }
+  ],
+  "altas":  [ { "posicao": 1, "simbolo": "...", "nome": "...", "setor": "...", "variacao": 0.12, "volumeFinanceiro": 1.2e8 } ],
+  "quedas": [ ],
+  "liquidez":   { "maiores": [ { "posicao": 1, "simbolo": "...", "nome": "...", "setor": "...", "volumeMedio63d": 2.1e9, "presenca": 1.0, "spreadEstimado": 0.0004 } ], "menores": [ ] },
+  "negociacao": { "maiores": [ { "posicao": 1, "simbolo": "...", "nome": "...", "setor": "...", "volumeFinanceiro": 9.8e9, "negocios": 512340 } ], "menores": [ ] },
+  "amplitude": { "subiram": 120, "cairam": 70, "estaveis": 6, "acimaMedia21": 0.55 },
+  "volumeAnormal": [ { "posicao": 1, "simbolo": "...", "razao": 3.4, "volumeFinanceiro": 3.0e8 } ],
+  "macro": { "selic": 0.15, "cdiPeriodo": 0.0028, "dolar": 5.42, "ipca12m": 0.047 },
+  "eventos": [ { "simbolo": "...", "tipo": "DESDOBRAMENTO", "data": "2026-10-15", "fator": "2/1" } ],
+  "indisponivel": []
+}
+```
+
+- Variações, coesão, presença, spread e taxas são frações (0.0213 = 2,13%); o painel formata.
+- Cada lista de ranking tem no máximo 10 itens; `posicao` começa em 1.
+- Bloco sem dado (ex.: liquidez ainda não calculada) vem vazio e o nome do bloco entra em `indisponivel`; a resposta continua 200. Sem nenhuma cotação, 200 com todos os blocos em `indisponivel`.
+- `janela` fora do catálogo = 400.
+- Os cards 6 a 8 (`volumeAnormal`, `macro`, `eventos`) entram na segunda onda (MERC-GES-2); até lá vêm em `indisponivel`.
+
+### Ordem e paralelismo
+
+| Onda | Tarefas | Observação |
+|---|---|---|
+| 0 | este contrato | congelado antes do código |
+| 1 | MERC-GES-1 e MERC-PAI-1 em paralelo | repositórios diferentes; o painel programa contra o contrato com dado de exemplo |
+| 2 | MERC-PAI-2 e MERC-PAI-3 em paralelo | cards diferentes, mesmo repositório, arquivos distintos |
+| 3 | MERC-GES-2 e MERC-PAI-4 | cards 6 a 8 |
+
+Regras: um agente por repositório por tarefa; status em `docs/merc/<ID>.md`, sem editar o SPEC durante a implementação (como nos Planos F360 e CARGA).
+
+### Aceite integrado
+
+1. O carrossel aparece no topo da Início e cada card carrega e falha sozinho, sem derrubar os outros blocos da página.
+2. O ranking setores × empresas mostra a mediana, a coesão e os 10 melhores e 10 piores de cada setor, com os números batendo com `cotacao_b3_diaria` para uma amostra conferida em teste.
+3. Os rankings de "menores" (liquidez e negociação) não listam ações sem negócio no período.
+4. Todo card mostra a data do pregão e o universo considerado; nenhum card finge ser tempo real.
+5. Nenhum comando ou flag novo (DEC-AGT-1): tudo sai do endpoint de leitura do gestor.
